@@ -230,7 +230,7 @@ export const Organization = () => {
                       </div>
                     </div>
                     <div className={cn(
-                      "flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
+                      "flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100",
                       selectedId === itemId ? "text-white/80" : "text-gray-400"
                     )}>
                       <button
