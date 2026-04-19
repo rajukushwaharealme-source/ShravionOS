@@ -7,7 +7,8 @@ import { collection, query, where, getDocs, doc, getDoc, setDoc, serverTimestamp
 import { 
   LogOut, User as UserIcon, Settings, Bell, Clock, 
   Moon, Sun, Monitor, Shield, ChevronRight, Zap, 
-  Target, Award, Flame, CheckCircle2, Timer, Sparkles, Save, X
+  Target, Award, Flame, CheckCircle2, Timer, Sparkles, Save, X,
+  ExternalLink, Plus, Pencil, Trash2, Globe2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
@@ -19,6 +20,13 @@ import {
   readLocalReviewSuggestions,
   saveLocalReviewSuggestions
 } from '../lib/review-suggestions';
+import {
+  DEFAULT_SHRAVION_PRODUCTS,
+  ShravionProduct,
+  normalizeShravionProducts,
+  readLocalShravionProducts,
+  saveLocalShravionProducts
+} from '../lib/shravion-products';
 
 export const Profile = () => {
   const { profile, user, updateUserProfile } = useAuth();
@@ -34,6 +42,11 @@ export const Profile = () => {
   const [weeklySuggestionsText, setWeeklySuggestionsText] = useState('');
   const [adminSaving, setAdminSaving] = useState(false);
   const [adminMessage, setAdminMessage] = useState('');
+  const [shravionProducts, setShravionProducts] = useState<ShravionProduct[]>([]);
+  const [productForm, setProductForm] = useState({ name: '', url: '', description: '' });
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [productSaving, setProductSaving] = useState(false);
+  const [productMessage, setProductMessage] = useState('');
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
 
@@ -90,6 +103,26 @@ export const Profile = () => {
     loadReviewSuggestions();
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const loadShravionProducts = async () => {
+      const localProducts = readLocalShravionProducts();
+      setShravionProducts(localProducts);
+
+      try {
+        const snap = await getDoc(doc(db, 'publicSettings', 'shravionProducts'));
+        const products = snap.exists() ? normalizeShravionProducts(snap.data().products) : DEFAULT_SHRAVION_PRODUCTS;
+        setShravionProducts(products);
+        saveLocalShravionProducts(products);
+      } catch (error) {
+        console.error('Could not load Shravion products', error);
+      }
+    };
+
+    loadShravionProducts();
+  }, [user]);
+
   const handleSaveAdminSuggestions = async () => {
     if (!isAdmin || !user) return;
 
@@ -115,6 +148,74 @@ export const Profile = () => {
       setAdminMessage('Saved locally. Firestore permission needs update.');
     } finally {
       setAdminSaving(false);
+    }
+  };
+
+  const resetProductForm = () => {
+    setProductForm({ name: '', url: '', description: '' });
+    setEditingProductId(null);
+  };
+
+  const persistShravionProducts = async (products: ShravionProduct[]) => {
+    if (!isAdmin || !user) return;
+
+    const normalizedProducts = normalizeShravionProducts(products);
+    setProductSaving(true);
+    setProductMessage('');
+    setShravionProducts(normalizedProducts);
+    saveLocalShravionProducts(normalizedProducts);
+
+    try {
+      await setDoc(doc(db, 'publicSettings', 'shravionProducts'), {
+        products: normalizedProducts,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+        updatedByEmail: user.email
+      }, { merge: true });
+      setProductMessage('Products saved.');
+    } catch (error) {
+      console.error('Could not save Shravion products', error);
+      setProductMessage('Saved locally. Firestore permission needs update.');
+    } finally {
+      setProductSaving(false);
+    }
+  };
+
+  const handleSaveProduct = async () => {
+    if (!isAdmin) return;
+
+    const normalized = normalizeShravionProducts([{
+      id: editingProductId || (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Date.now().toString()),
+      ...productForm
+    }])[0];
+
+    if (!normalized) {
+      setProductMessage('Product name and website link are required.');
+      return;
+    }
+
+    const nextProducts = editingProductId
+      ? shravionProducts.map((product) => product.id === editingProductId ? normalized : product)
+      : [normalized, ...shravionProducts];
+
+    resetProductForm();
+    await persistShravionProducts(nextProducts);
+  };
+
+  const handleEditProduct = (product: ShravionProduct) => {
+    setEditingProductId(product.id);
+    setProductForm({
+      name: product.name,
+      url: product.url,
+      description: product.description
+    });
+    setProductMessage('');
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    await persistShravionProducts(shravionProducts.filter((product) => product.id !== productId));
+    if (editingProductId === productId) {
+      resetProductForm();
     }
   };
 
@@ -309,6 +410,128 @@ export const Profile = () => {
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-200 transition-colors" />
               </Link>
+            </div>
+          </div>
+
+          {/* Explore More Shravion */}
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none overflow-hidden transition-colors duration-300">
+            <div className="p-6 border-b border-gray-100 dark:border-white/5 bg-gray-50/50 dark:bg-slate-800/30">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Globe2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                Explore More Shravion
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Discover other Shravion websites and products</p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {shravionProducts.length > 0 ? (
+                <div className="space-y-3">
+                  {shravionProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4 transition hover:border-blue-200 hover:bg-blue-50/60 dark:border-white/5 dark:bg-slate-800/45 dark:hover:border-blue-500/25 dark:hover:bg-blue-500/10"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 dark:text-white">{product.name}</p>
+                          {product.description && (
+                            <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{product.description}</p>
+                          )}
+                          <a
+                            href={product.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                          >
+                            Visit Website
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </div>
+                        {isAdmin && (
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditProduct(product)}
+                              className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:text-blue-600 dark:bg-slate-700/70 dark:text-gray-300 dark:hover:text-blue-300"
+                              aria-label={`Edit ${product.name}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteProduct(product.id)}
+                              disabled={productSaving}
+                              className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:text-rose-600 disabled:opacity-60 dark:bg-slate-700/70 dark:text-gray-300 dark:hover:text-rose-300"
+                              aria-label={`Delete ${product.name}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 p-5 text-sm text-gray-500 dark:border-white/10 dark:bg-slate-800/30 dark:text-gray-400">
+                  No Shravion products added yet.
+                </div>
+              )}
+
+              {isAdmin && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 dark:border-blue-500/10 dark:bg-blue-500/10">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-gray-900 dark:text-white">{editingProductId ? 'Edit Product Link' : 'Add Product Link'}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">This will appear in every user's profile section.</p>
+                    </div>
+                    {editingProductId && (
+                      <button
+                        type="button"
+                        onClick={resetProductForm}
+                        className="rounded-xl px-3 py-2 text-sm font-bold text-gray-500 transition hover:bg-white hover:text-gray-900 dark:text-gray-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                      >
+                        Cancel Edit
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      value={productForm.name}
+                      onChange={(event) => setProductForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Product name"
+                      className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:ring-2 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-800/70 dark:text-white dark:placeholder-gray-500"
+                    />
+                    <input
+                      value={productForm.url}
+                      onChange={(event) => setProductForm((current) => ({ ...current, url: event.target.value }))}
+                      placeholder="Website link"
+                      className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:ring-2 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-800/70 dark:text-white dark:placeholder-gray-500"
+                    />
+                  </div>
+                  <textarea
+                    value={productForm.description}
+                    onChange={(event) => setProductForm((current) => ({ ...current, description: event.target.value }))}
+                    rows={3}
+                    placeholder="Short description"
+                    className="mt-3 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:ring-2 focus:ring-blue-500 resize-none dark:border-white/10 dark:bg-slate-800/70 dark:text-white dark:placeholder-gray-500"
+                  />
+
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <button
+                      type="button"
+                      onClick={handleSaveProduct}
+                      disabled={productSaving}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {editingProductId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                      {productSaving ? 'Saving...' : editingProductId ? 'Update Product' : 'Add Product'}
+                    </button>
+                    {productMessage && <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{productMessage}</p>}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

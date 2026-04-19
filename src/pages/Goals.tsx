@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, deleteField, setDoc, Timestamp } from 'firebase/firestore';
@@ -42,6 +42,7 @@ type SubTask = {
 export const Goals = () => {
   const { user } = useAuth();
   const [goals, setGoals] = useState<any[]>([]);
+  const pendingOptimisticGoalsRef = useRef<Record<string, any>>({});
   const [focusSessions, setFocusSessions] = useState<any[]>([]);
   const [statusClock, setStatusClock] = useState(new Date());
   const [categories, setCategories] = useState<any[]>([]);
@@ -127,7 +128,11 @@ export const Goals = () => {
           ...data
         };
       });
-      setGoals(fetchedGoals);
+      fetchedGoals.forEach(goal => {
+        delete pendingOptimisticGoalsRef.current[goal.id];
+      });
+      const pendingGoals = Object.values(pendingOptimisticGoalsRef.current);
+      setGoals([...pendingGoals, ...fetchedGoals.filter(goal => !pendingOptimisticGoalsRef.current[goal.id])]);
       setLoading(false);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'goals'));
 
@@ -408,6 +413,7 @@ export const Goals = () => {
     }
 
     let previousGoalsSnapshot: any[] | null = null;
+    let pendingOptimisticGoalId: string | null = null;
 
     try {
       previousGoalsSnapshot = goals;
@@ -526,6 +532,7 @@ export const Goals = () => {
         await updateDoc(doc(db, 'goals', editingGoal.id), updateData);
       } else {
         const goalRef = doc(collection(db, 'goals'));
+        pendingOptimisticGoalId = goalRef.id;
         const createData: any = {
           ...baseGoalData,
           uid: user.uid,
@@ -563,12 +570,19 @@ export const Goals = () => {
           completedAt: shouldStoreCompleted ? Timestamp.now() : undefined,
           _optimistic: true
         };
+        pendingOptimisticGoalsRef.current[goalRef.id] = optimisticGoal;
+        setLoading(false);
+        setSelectedCategoryId(finalCategoryId);
+        setFilter('all');
         setGoals(prev => [optimisticGoal, ...prev.filter(goal => goal.id !== goalRef.id)]);
         resetGoalForm();
         showToast('Goal created successfully');
         await setDoc(goalRef, createData);
       }
     } catch (error) {
+      if (pendingOptimisticGoalId) {
+        delete pendingOptimisticGoalsRef.current[pendingOptimisticGoalId];
+      }
       if (previousGoalsSnapshot) {
         setGoals(previousGoalsSnapshot);
       }

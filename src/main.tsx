@@ -8,3 +8,13 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+const isProductionBuild = Boolean((import.meta as any).env?.PROD);
+
+if ('serviceWorker' in navigator && isProductionBuild) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.error('ShravionOS service worker registration failed', error);
+    });
+  });
+}

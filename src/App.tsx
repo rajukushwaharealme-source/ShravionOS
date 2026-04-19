@@ -19,6 +19,7 @@ import { Focus } from './pages/Focus';
 import { LandingPage } from './pages/LandingPage';
 import { LegalPage } from './pages/LegalPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PWAInstallProvider } from './components/PWAInstallPrompt';
 import { useAuth } from './contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
@@ -117,9 +118,11 @@ export default function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
-          <Router>
-            <AppRoutes />
-          </Router>
+          <PWAInstallProvider>
+            <Router>
+              <AppRoutes />
+            </Router>
+          </PWAInstallProvider>
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>

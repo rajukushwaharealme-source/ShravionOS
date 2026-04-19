@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { withGoalDisplayStatus } from '../lib/goal-status';
 import { FOCUS_SESSIONS_UPDATED_EVENT, getFocusSessionDate, getFocusSessionSeconds, mergeFocusSessionsWithCache, roundFocusSecondsToMinutes } from '../lib/focus-session-cache';
+import { InstallShravionButton } from '../components/PWAInstallPrompt';
 import { motion } from 'motion/react';
 
 const ALLOWED_GOAL_TYPES = ['daily', 'weekly', 'monthly', 'one-time'];
@@ -339,7 +340,7 @@ export const Dashboard = () => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-8 pt-2 flex justify-between items-start"
+          className="mb-8 pt-2 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start"
         >
           <div>
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{greeting},</p>
@@ -347,11 +348,12 @@ export const Dashboard = () => {
               {profile?.displayName?.split(' ')[0] || 'there'}
             </h1>
           </div>
-          <div className="text-right">
+          <div className="flex flex-col items-start gap-3 text-left sm:items-end sm:text-right">
             <div className="inline-flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_0_15px_rgba(249,115,22,0.15)] transition-colors duration-300">
               <Flame className="w-4 h-4 text-orange-500 dark:text-orange-400" />
               <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{profile?.currentStreak || 0} Day Streak</span>
             </div>
+            <InstallShravionButton className="rounded-2xl px-4 py-2 text-xs" />
           </div>
         </motion.div>
 

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { BrandText } from '../components/BrandText';
+import { InstallShravionButton, LandingInstallMessage } from '../components/PWAInstallPrompt';
 
 const features = [
   {
@@ -243,7 +244,9 @@ export const LandingPage = () => {
                   <Play className="h-5 w-5 fill-current" />
                   See Demo
                 </a>
+                <InstallShravionButton className="w-full justify-center border-white/12 bg-white/[0.06] px-7 py-4 text-base shadow-none backdrop-blur hover:bg-white/10 sm:w-auto" />
               </div>
+              <LandingInstallMessage />
 
               <div className="mt-6 flex flex-col gap-3 text-sm leading-6 text-slate-400 sm:flex-row sm:items-center">
                 <p className="font-medium">Built for students, professionals, creators, and self-improvement users.</p>
