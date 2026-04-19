@@ -239,10 +239,10 @@ export const Analytics = () => {
               onChange={(e) => setTimeFilter(e.target.value as TimeFilter)}
               className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-200 text-sm rounded-xl pl-4 pr-10 py-2.5 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500/50 outline-none shadow-sm dark:shadow-none font-medium hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-              <option value="all">All Time</option>
+              <option value="today" className="bg-slate-900 text-slate-100">Today</option>
+              <option value="week" className="bg-slate-900 text-slate-100">This Week</option>
+              <option value="month" className="bg-slate-900 text-slate-100">This Month</option>
+              <option value="all" className="bg-slate-900 text-slate-100">All Time</option>
             </select>
             <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
@@ -253,8 +253,8 @@ export const Analytics = () => {
               onChange={(e) => setCategoryFilter(e.target.value)}
               className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-200 text-sm rounded-xl pl-4 pr-10 py-2.5 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500/50 outline-none shadow-sm dark:shadow-none font-medium hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
-              <option value="all">All Categories</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="all" className="bg-slate-900 text-slate-100">All Categories</option>
+              {categories.map(c => <option key={c.id} value={c.id} className="bg-slate-900 text-slate-100">{c.name}</option>)}
             </select>
             <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>

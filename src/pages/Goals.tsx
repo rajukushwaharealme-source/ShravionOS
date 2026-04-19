@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, deleteField } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, deleteField, setDoc, Timestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
-import { Plus, CheckCircle2, Circle, Folder, Target, X, Search, MoreVertical, Edit2, Trash2, Database, ChevronDown, ChevronUp, Clock, Play } from 'lucide-react';
+import { Plus, CheckCircle2, Circle, Folder, Target, X, Search, MoreVertical, Edit2, Trash2, ChevronDown, ChevronUp, Clock, Play } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -18,6 +18,10 @@ import { motion, AnimatePresence } from 'motion/react';
 
 const ALLOWED_GOAL_TYPES = ['daily', 'weekly', 'monthly', 'one-time'];
 const ALLOWED_PROGRESS_TYPES = ['checkbox', 'percentage', 'duration'];
+
+const toOptimisticTimestamp = (value: Date | null) => {
+  return value ? Timestamp.fromDate(value) : undefined;
+};
 
 const getStatusLabel = (status: string) => {
   if (status === 'in-progress') return 'In Progress';
@@ -45,7 +49,6 @@ export const Goals = () => {
   const [topicsList, setTopicsList] = useState<any[]>([]);
   const [conceptsList, setConceptsList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSeeding, setIsSeeding] = useState(false);
   
   // Search and Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +62,7 @@ export const Goals = () => {
   // Goal Form State
   const [newGoalTitle, setNewGoalTitle] = useState('');
   const [newGoalCategory, setNewGoalCategory] = useState('');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [inlineCategoryName, setInlineCategoryName] = useState('');
   const [goalStartDate, setGoalStartDate] = useState('');
@@ -287,27 +291,6 @@ export const Goals = () => {
     return Math.max(0, Math.ceil(target - actual));
   };
 
-  const seedDummyData = async () => {
-    if (!user) return;
-    setIsSeeding(true);
-    try {
-      const workCat = await addDoc(collection(db, 'categories'), { uid: user.uid, name: 'Work', color: '#3B82F6', icon: 'folder', createdAt: serverTimestamp() });
-      const healthCat = await addDoc(collection(db, 'categories'), { uid: user.uid, name: 'Health', color: '#10B981', icon: 'folder', createdAt: serverTimestamp() });
-      const studyCat = await addDoc(collection(db, 'categories'), { uid: user.uid, name: 'Study', color: '#8B5CF6', icon: 'folder', createdAt: serverTimestamp() });
-
-      const today = new Date();
-      const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-
-      await addDoc(collection(db, 'goals'), { uid: user.uid, title: 'Complete Math Revision', categoryId: studyCat.id, deadline: tomorrow, priority: 'high', status: 'pending', type: 'one-time', createdAt: serverTimestamp() });
-      await addDoc(collection(db, 'goals'), { uid: user.uid, title: 'Workout 30 mins', categoryId: healthCat.id, deadline: today, priority: 'medium', status: 'pending', type: 'one-time', createdAt: serverTimestamp() });
-      await addDoc(collection(db, 'goals'), { uid: user.uid, title: 'Read 10 pages', categoryId: studyCat.id, deadline: today, priority: 'low', status: 'completed', completedAt: serverTimestamp(), type: 'one-time', createdAt: serverTimestamp() });
-    } catch (error) {
-      console.error("Error seeding data", error);
-    } finally {
-      setIsSeeding(false);
-    }
-  };
-
   const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !newCategoryName.trim()) return;
@@ -332,6 +315,7 @@ export const Goals = () => {
     setEditingGoal(null);
     setNewGoalTitle('');
     setNewGoalCategory('');
+    setShowCategoryDropdown(false);
     setIsCreatingCategory(false);
     setInlineCategoryName('');
     setGoalStartDate('');
@@ -358,6 +342,7 @@ export const Goals = () => {
     setEditingGoal(goal);
     setNewGoalTitle(goal.title);
     setNewGoalCategory(goal.categoryId);
+    setShowCategoryDropdown(false);
     setIsCreatingCategory(false);
     setInlineCategoryName('');
     
@@ -422,7 +407,10 @@ export const Goals = () => {
       return;
     }
 
+    let previousGoalsSnapshot: any[] | null = null;
+
     try {
+      previousGoalsSnapshot = goals;
       let finalCategoryId = newGoalCategory;
       
       // Handle inline category creation
@@ -474,22 +462,30 @@ export const Goals = () => {
       }
 
       if (editingGoal) {
+        let optimisticTargetValue: number | undefined;
         let tv: any = deleteField();
         if (targetValue) {
-          tv = parseFloat(targetValue);
+          optimisticTargetValue = parseFloat(targetValue);
+          tv = optimisticTargetValue;
         } else if (safeProgressType === 'percentage') {
-          tv = 100;
+          optimisticTargetValue = 100;
+          tv = optimisticTargetValue;
         }
 
+        let optimisticCompletedValue: number | undefined;
         let cv: any = deleteField();
         if (safeProgressType === 'percentage' && normalizedSubTasks.length > 0) {
-          cv = subTaskPercentage;
+          optimisticCompletedValue = subTaskPercentage;
+          cv = optimisticCompletedValue;
         } else if (completedValue) {
-          cv = parseFloat(completedValue);
+          optimisticCompletedValue = parseFloat(completedValue);
+          cv = optimisticCompletedValue;
         } else if (safeProgressType === 'percentage') {
-           cv = editingGoal?.completedValue || 0;
+           optimisticCompletedValue = editingGoal?.completedValue || 0;
+           cv = optimisticCompletedValue;
         } else if (safeProgressType === 'duration') {
-           cv = editingGoal?.completedValue || 0;
+           optimisticCompletedValue = editingGoal?.completedValue || 0;
+           cv = optimisticCompletedValue;
         }
 
         const updateData = {
@@ -508,9 +504,28 @@ export const Goals = () => {
           description: deleteField(),
           estimatedTime: deleteField()
         };
-        await updateDoc(doc(db, 'goals', editingGoal.id), updateData);
+        const optimisticUpdate: any = {
+          ...editingGoal,
+          ...baseGoalData,
+          startDate: toOptimisticTimestamp(finalStartDate),
+          deadline: toOptimisticTimestamp(finalDeadline),
+          subjectId: subject.trim() ? subject.trim() : undefined,
+          topicId: topic.trim() ? topic.trim() : undefined,
+          conceptId: concept.trim() ? concept.trim() : undefined,
+          targetValue: optimisticTargetValue,
+          completedValue: optimisticCompletedValue,
+          repeatSchedule: repeatSchedule.trim() ? repeatSchedule.trim() : undefined,
+          notes: notes.trim() ? notes.trim() : undefined,
+          subTasks: normalizedSubTasks.length > 0 ? normalizedSubTasks : undefined,
+          completedAt: shouldStoreCompleted ? (editingGoal.completedAt || Timestamp.now()) : undefined,
+          _optimistic: true
+        };
+        setGoals(prev => prev.map(goal => goal.id === editingGoal.id ? optimisticUpdate : goal));
+        resetGoalForm();
         showToast('Goal updated successfully');
+        await updateDoc(doc(db, 'goals', editingGoal.id), updateData);
       } else {
+        const goalRef = doc(collection(db, 'goals'));
         const createData: any = {
           ...baseGoalData,
           uid: user.uid,
@@ -539,11 +554,24 @@ export const Goals = () => {
         if (notes.trim()) createData.notes = notes.trim();
         if (normalizedSubTasks.length > 0) createData.subTasks = normalizedSubTasks;
         
-        await addDoc(collection(db, 'goals'), createData);
+        const optimisticGoal: any = {
+          ...createData,
+          id: goalRef.id,
+          createdAt: Timestamp.now(),
+          startDate: toOptimisticTimestamp(finalStartDate),
+          deadline: toOptimisticTimestamp(finalDeadline),
+          completedAt: shouldStoreCompleted ? Timestamp.now() : undefined,
+          _optimistic: true
+        };
+        setGoals(prev => [optimisticGoal, ...prev.filter(goal => goal.id !== goalRef.id)]);
+        resetGoalForm();
         showToast('Goal created successfully');
+        await setDoc(goalRef, createData);
       }
-      resetGoalForm();
     } catch (error) {
+      if (previousGoalsSnapshot) {
+        setGoals(previousGoalsSnapshot);
+      }
       console.error('Goal save failed', error);
       showToast(error instanceof Error ? error.message : 'Could not save goal. Please try again.');
     }
@@ -813,16 +841,6 @@ export const Goals = () => {
             <p className="text-gray-500 dark:text-gray-400 text-sm max-w-[200px] mx-auto mb-6">
               {searchQuery ? "Try a different search term." : "Tap the + button to create your first goal."}
             </p>
-            {!searchQuery && displayedGoals.length === 0 && (
-              <button 
-                onClick={seedDummyData}
-                disabled={isSeeding}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-50 dark:bg-blue-600/10 text-blue-600 dark:text-blue-400 font-bold rounded-xl hover:bg-blue-100 dark:hover:bg-blue-600/20 transition-colors"
-              >
-                <Database className="w-4 h-4" />
-                {isSeeding ? 'Loading...' : 'Load Demo Data'}
-              </button>
-            )}
           </motion.div>
         ) : (
           <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
@@ -1183,7 +1201,7 @@ export const Goals = () => {
                       </label>
                       <button 
                         type="button" 
-                        onClick={() => { setIsCreatingCategory(!isCreatingCategory); if(errors.category) setErrors({...errors, category: undefined}); }} 
+                        onClick={() => { setIsCreatingCategory(!isCreatingCategory); setShowCategoryDropdown(false); if(errors.category) setErrors({...errors, category: undefined}); }} 
                         className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                       >
                         {isCreatingCategory ? 'Choose Existing' : '+ New Category'}
@@ -1204,21 +1222,70 @@ export const Goals = () => {
                       />
                     ) : (
                       <div className="relative">
-                        <select
-                          value={newGoalCategory}
-                          onChange={(e) => { setNewGoalCategory(e.target.value); if(errors.category) setErrors({...errors, category: undefined}); setSubject(''); setTopic(''); setConcept(''); }}
+                        <button
+                          type="button"
+                          onClick={() => setShowCategoryDropdown(prev => !prev)}
                           className={cn(
-                            "w-full bg-gray-50 dark:bg-slate-800/50 border rounded-2xl px-5 py-4 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg appearance-none transition-all dark:text-white",
+                            "w-full bg-gray-50 dark:bg-slate-800/50 border rounded-2xl px-5 py-4 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg transition-all dark:text-white text-left",
                             errors.category ? "border-red-300 bg-red-50 dark:border-red-500/50 dark:bg-red-500/10" : "border-gray-200 dark:border-white/10",
                             !newGoalCategory && "text-gray-400 dark:text-gray-500"
                           )}
                         >
-                          <option value="" disabled>Select a category</option>
-                          {categories.map(cat => (
-                            <option key={cat.id} value={cat.id} className="text-gray-900 dark:text-gray-100">{cat.name}</option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                          {categories.find(cat => cat.id === newGoalCategory)?.name || 'Select a category'}
+                        </button>
+                        <ChevronDown className={cn(
+                          "absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none transition-transform",
+                          showCategoryDropdown && "rotate-180"
+                        )} />
+
+                        <AnimatePresence>
+                          {showCategoryDropdown && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                              transition={{ duration: 0.15 }}
+                              className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[90] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-2xl shadow-black/40 backdrop-blur-xl"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewGoalCategory('');
+                                  setShowCategoryDropdown(false);
+                                }}
+                                className="w-full px-5 py-3 text-left text-sm font-semibold text-slate-400 transition-colors hover:bg-white/5 hover:text-white"
+                              >
+                                Select a category
+                              </button>
+                              <div className="max-h-56 overflow-y-auto p-1.5">
+                                {categories.map(cat => (
+                                  <button
+                                    key={cat.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setNewGoalCategory(cat.id);
+                                      setShowCategoryDropdown(false);
+                                      if (errors.category) setErrors({ ...errors, category: undefined });
+                                      setSubject('');
+                                      setTopic('');
+                                      setConcept('');
+                                    }}
+                                    className={cn(
+                                      "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-bold text-slate-200 transition-colors hover:bg-blue-500/15 hover:text-white",
+                                      newGoalCategory === cat.id && "bg-blue-500/20 text-blue-200"
+                                    )}
+                                  >
+                                    <span
+                                      className="h-8 w-8 shrink-0 rounded-xl border border-white/10"
+                                      style={{ backgroundColor: `${cat.color || '#3B82F6'}25` }}
+                                    />
+                                    <span className="truncate">{cat.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     )}
                     {errors.category && <p className="text-red-500 text-xs font-medium mt-1.5 ml-1">{errors.category}</p>}

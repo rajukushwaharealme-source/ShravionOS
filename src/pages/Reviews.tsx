@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calendar, CheckCircle2, XCircle, Clock, 
   TrendingUp, TrendingDown, Target, Award,
@@ -11,7 +11,7 @@ import {
 import { cn } from '../lib/utils';
 import { withGoalDisplayStatus } from '../lib/goal-status';
 import { FOCUS_SESSIONS_UPDATED_EVENT, getFocusSessionDate, getFocusSessionSeconds, mergeFocusSessionsWithCache, roundFocusSecondsToMinutes } from '../lib/focus-session-cache';
-import { startOfWeek, endOfWeek, startOfDay, endOfDay, subDays, subWeeks, format } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfDay, endOfDay, format, isSameDay } from 'date-fns';
 import {
   DEFAULT_REVIEW_SUGGESTIONS,
   REVIEW_SUGGESTIONS_UPDATED_EVENT,
@@ -21,6 +21,33 @@ import {
 } from '../lib/review-suggestions';
 
 type ReviewType = 'daily' | 'weekly';
+
+const toDate = (value: any): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value.toDate === 'function') return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isDateInRange = (value: any, start: Date, end: Date) => {
+  const date = toDate(value);
+  return Boolean(date && date >= start && date <= end);
+};
+
+const isGoalScheduledForDate = (goal: any, date: Date) => {
+  const startDate = toDate(goal.startDate);
+  const deadline = toDate(goal.deadline);
+  return Boolean((startDate && isSameDay(startDate, date)) || (deadline && isSameDay(deadline, date)));
+};
+
+const isGoalRelevantForRange = (goal: any, start: Date, end: Date) => {
+  return (
+    isDateInRange(goal.startDate, start, end) ||
+    isDateInRange(goal.deadline, start, end) ||
+    isDateInRange(goal.completedAt, start, end)
+  );
+};
 
 export const Reviews = () => {
   const { user } = useAuth();
@@ -114,40 +141,45 @@ export const Reviews = () => {
 
   // Daily Review Logic
   const generateDailyReview = () => {
-    const todayStart = startOfDay(new Date());
-    const todayEnd = endOfDay(new Date());
+    const now = statusClock;
+    const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
 
     const plannedToday = displayedGoals.filter(g => {
-      if (!g.deadline) return false;
-      const d = g.deadline.toDate();
-      return d >= todayStart && d <= todayEnd;
+      return (
+        isGoalScheduledForDate(g, now) ||
+        isDateInRange(g.completedAt, todayStart, todayEnd)
+      );
     });
 
-    const completedToday = plannedToday.filter(g => g.status === 'completed');
-    const missedToday = plannedToday.filter(g => g.status !== 'completed' && g.deadline.toDate() < new Date());
-    const moveTomorrow = plannedToday.filter(g => g.status !== 'completed');
+    const completedToday = plannedToday.filter(g => g.status === 'completed' || isDateInRange(g.completedAt, todayStart, todayEnd));
+    const missedToday = plannedToday.filter(g => g.status === 'missed');
+    const pendingToday = plannedToday.filter(g => g.status !== 'completed' && g.status !== 'missed');
+    const completionRate = plannedToday.length > 0 ? Math.round((completedToday.length / plannedToday.length) * 100) : 0;
 
     return {
       planned: plannedToday,
       completed: completedToday,
       missed: missedToday,
-      moveTomorrow: moveTomorrow
+      pending: pendingToday,
+      completionRate
     };
   };
 
   // Weekly Review Logic
   const generateWeeklyReview = () => {
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
+    const now = statusClock;
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
 
     const thisWeekGoals = displayedGoals.filter(g => {
-      if (!g.deadline) return false;
-      const d = g.deadline.toDate();
-      return d >= weekStart && d <= weekEnd;
+      return isGoalRelevantForRange(g, weekStart, weekEnd);
     });
 
-    const completedThisWeek = thisWeekGoals.filter(g => g.status === 'completed');
-    const missedThisWeek = thisWeekGoals.filter(g => g.status === 'missed' || (g.status !== 'completed' && g.deadline.toDate() < new Date()));
+    const completedThisWeek = thisWeekGoals.filter(g => g.status === 'completed' || isDateInRange(g.completedAt, weekStart, weekEnd));
+    const missedThisWeek = thisWeekGoals.filter(g => g.status === 'missed');
+    const pendingThisWeek = thisWeekGoals.filter(g => g.status !== 'completed' && g.status !== 'missed');
+    const completionRate = thisWeekGoals.length > 0 ? Math.round((completedThisWeek.length / thisWeekGoals.length) * 100) : 0;
 
     const thisWeekSessions = sessions.filter(s => {
       const d = getFocusSessionDate(s);
@@ -238,6 +270,9 @@ export const Reviews = () => {
     if (missedThisWeek.length > completedThisWeek.length) {
       suggestions.push("You missed more goals than you completed. Consider reducing your planned tasks by 20% next week to build momentum.");
     }
+    if (thisWeekGoals.length > 0 && completionRate < 60) {
+      suggestions.push(`This week's completion rate is ${completionRate}%. Keep fewer goals, make them smaller, and protect focus blocks.`);
+    }
     if (worstCategory) {
       suggestions.push(`Your completion rate for "${worstCategory.name}" was low. Try breaking these tasks into smaller, more manageable steps.`);
     }
@@ -246,8 +281,15 @@ export const Reviews = () => {
     }
 
     return {
+      weekStart,
+      weekEnd,
+      planned: thisWeekGoals,
+      pending: pendingThisWeek,
       completed: completedThisWeek.length,
+      completedGoals: completedThisWeek,
       missed: missedThisWeek.length,
+      missedGoals: missedThisWeek,
+      completionRate,
       focusMinutes: totalFocusMinutes,
       bestCategory,
       worstCategory,
@@ -335,15 +377,15 @@ export const Reviews = () => {
                 <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
                   <p className="text-blue-200 text-sm font-medium mb-1">Completion Rate</p>
                   <p className="text-3xl font-display font-bold">
-                    {daily.planned.length > 0 ? Math.round((daily.completed.length / daily.planned.length) * 100) : 0}%
+                    {daily.completionRate}%
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {reviewSuggestions.todaySuggestion && (
-                <div className="md:col-span-2 bg-amber-50 dark:bg-amber-500/10 rounded-[1.5rem] p-6 border border-amber-100 dark:border-amber-500/10 shadow-sm dark:shadow-none transition-colors duration-300">
+                <div className="md:col-span-3 bg-amber-50 dark:bg-amber-500/10 rounded-[1.5rem] p-6 border border-amber-100 dark:border-amber-500/10 shadow-sm dark:shadow-none transition-colors duration-300">
                   <h3 className="text-lg font-bold text-amber-900 dark:text-amber-200 mb-3 flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                     Today's Suggestion
@@ -351,6 +393,32 @@ export const Reviews = () => {
                   <p className="text-amber-900 dark:text-amber-100 font-medium leading-relaxed">{reviewSuggestions.todaySuggestion}</p>
                 </div>
               )}
+
+              <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <Target className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                  Planned Today
+                </h3>
+                {daily.planned.length > 0 ? (
+                  <ul className="space-y-3">
+                    {daily.planned.map(g => (
+                      <li key={g.id} className="flex items-center justify-between gap-3 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-slate-800/50 rounded-xl p-3 transition-colors">
+                        <span className="font-medium truncate">{g.title}</span>
+                        <span className={cn(
+                          "shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider",
+                          g.status === 'completed' && "bg-green-100 text-green-700 dark:bg-emerald-500/10 dark:text-emerald-400",
+                          g.status === 'missed' && "bg-red-100 text-red-700 dark:bg-rose-500/10 dark:text-rose-400",
+                          g.status !== 'completed' && g.status !== 'missed' && "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400"
+                        )}>
+                          {g.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 italic">No goals planned for today.</p>
+                )}
+              </div>
 
               <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -373,20 +441,20 @@ export const Reviews = () => {
 
               <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                  <ArrowRight className="w-5 h-5 text-orange-500 dark:text-orange-400" />
-                  Move to Tomorrow
+                  <XCircle className="w-5 h-5 text-red-500 dark:text-rose-400" />
+                  Missed Today
                 </h3>
-                {daily.moveTomorrow.length > 0 ? (
+                {daily.missed.length > 0 ? (
                   <ul className="space-y-3">
-                    {daily.moveTomorrow.map(g => (
+                    {daily.missed.map(g => (
                       <li key={g.id} className="flex items-center gap-3 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-slate-800/50 rounded-xl p-3 transition-colors">
-                        <div className="w-2 h-2 rounded-full bg-orange-500 dark:bg-orange-400"></div>
+                        <div className="w-2 h-2 rounded-full bg-red-500 dark:bg-rose-400"></div>
                         <span className="font-medium">{g.title}</span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-gray-500 dark:text-gray-400 italic">All planned goals are completed!</p>
+                  <p className="text-gray-500 dark:text-gray-400 italic">No missed goals today.</p>
                 )}
               </div>
             </div>
@@ -399,10 +467,27 @@ export const Reviews = () => {
             exit={{ opacity: 0, y: -20 }}
             className="space-y-6"
           >
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <p className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-4">
+                {format(weekly.weekStart, 'MMM d')} - {format(weekly.weekEnd, 'MMM d, yyyy')}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none flex items-center gap-4 transition-colors duration-300">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center shrink-0">
+                  <Target className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Planned</p>
+                  <div className="flex items-end gap-2">
+                    <p className="text-3xl font-display font-bold text-gray-900 dark:text-white">{weekly.planned.length}</p>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 mb-1">goals</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none flex items-center gap-4 transition-colors duration-300">
                 <div className="w-12 h-12 rounded-2xl bg-green-50 dark:bg-emerald-500/10 flex items-center justify-center shrink-0">
-                  <Target className="w-6 h-6 text-green-600 dark:text-emerald-400" />
+                  <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-emerald-400" />
                 </div>
                 <div>
                   <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Goals Met</p>
@@ -427,6 +512,18 @@ export const Reviews = () => {
               </div>
 
               <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none flex items-center gap-4 transition-colors duration-300">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center shrink-0">
+                  <TrendingUp className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Completion</p>
+                  <div className="flex items-end gap-2">
+                    <p className="text-3xl font-display font-bold text-gray-900 dark:text-white">{weekly.completionRate}%</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none flex items-center gap-4 transition-colors duration-300 md:col-span-4">
                 <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-500/10 flex items-center justify-center shrink-0">
                   <Clock className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                 </div>
@@ -438,6 +535,47 @@ export const Reviews = () => {
                     </p>
                   </div>
                 </div>
+              </div>
+            </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-green-500 dark:text-emerald-400" />
+                  Completed This Week
+                </h3>
+                {weekly.completedGoals.length > 0 ? (
+                  <ul className="space-y-3">
+                    {weekly.completedGoals.slice(0, 6).map((g: any) => (
+                      <li key={g.id} className="flex items-center gap-3 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-slate-800/50 rounded-xl p-3 transition-colors">
+                        <div className="w-2 h-2 rounded-full bg-green-500 dark:bg-emerald-500"></div>
+                        <span className="font-medium">{g.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 italic">No completed goals this week yet.</p>
+                )}
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <XCircle className="w-5 h-5 text-red-500 dark:text-rose-400" />
+                  Missed This Week
+                </h3>
+                {weekly.missedGoals.length > 0 ? (
+                  <ul className="space-y-3">
+                    {weekly.missedGoals.slice(0, 6).map((g: any) => (
+                      <li key={g.id} className="flex items-center gap-3 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-slate-800/50 rounded-xl p-3 transition-colors">
+                        <div className="w-2 h-2 rounded-full bg-red-500 dark:bg-rose-400"></div>
+                        <span className="font-medium">{g.title}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 italic">No missed goals this week.</p>
+                )}
               </div>
             </div>
 

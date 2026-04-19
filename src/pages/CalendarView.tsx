@@ -145,25 +145,40 @@ export const CalendarView = () => {
   };
 
   const selectedDayData = getDayData(selectedDate);
+  const lastFiveFocusDays = useMemo(() => {
+    return Array.from({ length: 5 }, (_, index) => {
+      const date = subDays(statusClock, index);
+      const focusSeconds = sessions.reduce((acc, session) => {
+        const sessionDate = getFocusSessionDate(session);
+        return sessionDate && isSameDay(sessionDate, date) ? acc + getFocusSessionSeconds(session) : acc;
+      }, 0);
+
+      return {
+        date,
+        focusSeconds,
+        focusMinutes: roundFocusSecondsToMinutes(focusSeconds)
+      };
+    });
+  }, [sessions, statusClock]);
 
   if (loading) {
-    return <div className="p-6 pb-24 animate-pulse dark:bg-transparent dark:text-white min-h-screen transition-colors duration-300">Loading calendar...</div>;
+    return <div className="p-4 sm:p-6 pb-24 animate-pulse dark:bg-transparent dark:text-white min-h-screen transition-colors duration-300">Loading calendar...</div>;
   }
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 pb-32 max-w-7xl mx-auto min-h-screen text-gray-900 dark:text-gray-100 transition-colors duration-300">
+    <div className="px-3 py-5 sm:p-6 md:p-8 lg:p-10 pb-28 sm:pb-32 max-w-7xl mx-auto min-h-screen text-gray-900 dark:text-gray-100 transition-colors duration-300 overflow-x-hidden">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8 pt-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-5 sm:mb-8 pt-2 sm:pt-4">
         <div>
-          <h1 className="text-3xl font-display font-bold text-gray-900 dark:text-white tracking-tight">Calendar</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Plan and review your productivity</p>
+          <h1 className="text-2xl sm:text-3xl font-display font-bold text-gray-900 dark:text-white tracking-tight">Calendar</h1>
+          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Plan and review your productivity</p>
         </div>
         
-        <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-1 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm transition-colors duration-300">
+        <div className="grid grid-cols-3 gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm transition-colors duration-300 w-full md:w-auto">
           <button
             onClick={() => setViewMode('timeline')}
             className={cn(
-              "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2",
+              "px-2 sm:px-4 py-2 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center justify-center gap-2",
               viewMode === 'timeline' ? "bg-gray-900 dark:bg-blue-600/20 text-white dark:text-blue-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             )}
           >
@@ -172,7 +187,7 @@ export const CalendarView = () => {
           <button
             onClick={() => setViewMode('week')}
             className={cn(
-              "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
+              "px-2 sm:px-4 py-2 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors",
               viewMode === 'week' ? "bg-gray-900 dark:bg-blue-600/20 text-white dark:text-blue-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             )}
           >
@@ -181,7 +196,7 @@ export const CalendarView = () => {
           <button
             onClick={() => setViewMode('month')}
             className={cn(
-              "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
+              "px-2 sm:px-4 py-2 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors",
               viewMode === 'month' ? "bg-gray-900 dark:bg-blue-600/20 text-white dark:text-blue-400" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
             )}
           >
@@ -190,16 +205,16 @@ export const CalendarView = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-8">
         {/* Calendar Navigation & Grid */}
         <div className="lg:col-span-2">
           {viewMode === 'timeline' ? (
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 md:p-8 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-2xl font-display font-bold text-gray-900 dark:text-white">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl sm:rounded-[2rem] p-4 sm:p-6 md:p-8 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-gray-900 dark:text-white">
                   {format(currentDate, 'EEEE, MMMM d')}
                 </h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between sm:justify-end gap-2">
                   <button onClick={() => setCurrentDate(subDays(currentDate, 1))} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400 transition-colors">
                     <ChevronLeft className="w-5 h-5" />
                   </button>
@@ -214,17 +229,17 @@ export const CalendarView = () => {
                   </button>
                 </div>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Click anywhere on the timeline to create a block</p>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mb-4 sm:mb-6">Tap anywhere on the timeline to create a block</p>
               
               <TimelineView date={currentDate} blocks={timeBlocks} goals={displayedGoals} />
             </div>
           ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-6 md:p-8 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-2xl font-display font-bold text-gray-900 dark:text-white">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl sm:rounded-[2rem] p-4 sm:p-6 md:p-8 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 sm:mb-8">
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-gray-900 dark:text-white">
                   {format(currentDate, viewMode === 'month' ? 'MMMM yyyy' : 'MMM d, yyyy')}
                 </h2>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between sm:justify-end gap-2">
                   <button onClick={handlePrev} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-600 dark:text-gray-400 transition-colors">
                     <ChevronLeft className="w-5 h-5" />
                   </button>
@@ -241,16 +256,17 @@ export const CalendarView = () => {
               </div>
 
               {/* Days Header */}
-              <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4">
+              <div className="grid grid-cols-7 gap-1.5 sm:gap-2 md:gap-4 mb-3 sm:mb-4">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="text-center text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-                    {day}
+                  <div key={day} className="text-center text-[10px] sm:text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                    <span className="hidden sm:inline">{day}</span>
+                    <span className="sm:hidden">{day.slice(0, 1)}</span>
                   </div>
                 ))}
               </div>
 
               {/* Calendar Grid */}
-              <div className="grid grid-cols-7 gap-2 md:gap-4">
+              <div className="grid grid-cols-7 gap-1.5 sm:gap-2 md:gap-4">
                 {daysToDisplay.map(date => {
                   const data = getDayData(date);
                   const isSelected = isSameDay(date, selectedDate);
@@ -267,8 +283,8 @@ export const CalendarView = () => {
                         }
                       }}
                       className={cn(
-                        "aspect-square flex flex-col items-center justify-center relative rounded-2xl transition-all border-2",
-                        isSelected ? "border-gray-900 dark:border-white shadow-md dark:shadow-[0_0_15px_rgba(255,255,255,0.1)] scale-105 z-10" : "border-transparent hover:border-gray-200 dark:hover:border-white/20",
+                        "aspect-square min-h-9 flex flex-col items-center justify-center relative rounded-xl sm:rounded-2xl transition-all border",
+                        isSelected ? "border-gray-900 dark:border-white shadow-md dark:shadow-[0_0_15px_rgba(255,255,255,0.1)] sm:scale-105 z-10" : "border-transparent hover:border-gray-200 dark:hover:border-white/20",
                         !isCurrentMonth && viewMode === 'month' ? "opacity-30" : "opacity-100",
                         data.status === 'perfect' && "bg-green-500 dark:bg-emerald-500 text-white dark:shadow-[0_0_10px_rgba(16,185,129,0.3)]",
                         data.status === 'partial' && "bg-green-100 dark:bg-emerald-500/20 text-green-900 dark:text-emerald-400",
@@ -279,7 +295,7 @@ export const CalendarView = () => {
                       )}
                     >
                       <span className={cn(
-                        "text-sm md:text-base font-bold",
+                        "text-xs sm:text-sm md:text-base font-bold",
                         isToday(date) && !isSelected && "text-blue-600 dark:text-blue-400"
                       )}>
                         {format(date, 'd')}
@@ -287,9 +303,9 @@ export const CalendarView = () => {
                       
                       {/* Heatmap indicators */}
                       {data.focusSeconds > 0 && (
-                        <div className="absolute bottom-2 flex gap-0.5">
+                        <div className="absolute bottom-1.5 sm:bottom-2 flex gap-0.5">
                           <div className={cn(
-                            "w-1.5 h-1.5 md:w-2 md:h-2 rounded-full",
+                            "w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full",
                             data.status === 'perfect' ? "bg-white/80" : "bg-indigo-500 dark:bg-indigo-400"
                           )} />
                         </div>
@@ -300,7 +316,7 @@ export const CalendarView = () => {
               </div>
 
               {/* Legend */}
-              <div className="mt-8 pt-6 border-t border-gray-100 dark:border-white/5 flex flex-wrap gap-6 justify-center text-sm font-medium text-gray-500 dark:text-gray-400 transition-colors">
+              <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-gray-100 dark:border-white/5 grid grid-cols-2 sm:flex sm:flex-wrap gap-3 sm:gap-6 justify-center text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 transition-colors">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-green-500 dark:bg-emerald-500"></div>
                   <span>Perfect Day</span>
@@ -363,6 +379,44 @@ export const CalendarView = () => {
                     </div>
                   </div>
                 )}
+
+                <div className="pt-3 border-t border-indigo-200 dark:border-indigo-500/20">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-500/70">Last 5 Days</p>
+                    <p className="text-[11px] font-medium text-indigo-500/70 dark:text-indigo-400/60">Rolling history</p>
+                  </div>
+                  <div className="space-y-2">
+                    {lastFiveFocusDays.map(day => {
+                      const isActiveDay = isSameDay(day.date, selectedDate);
+
+                      return (
+                        <button
+                          key={day.date.toISOString()}
+                          onClick={() => {
+                            setSelectedDate(day.date);
+                            setCurrentDate(day.date);
+                          }}
+                          className={cn(
+                            "w-full rounded-xl border px-3 py-2 text-left transition-colors",
+                            isActiveDay
+                              ? "border-indigo-400 bg-indigo-100 text-indigo-950 dark:border-indigo-400/60 dark:bg-indigo-500/20 dark:text-indigo-100"
+                              : "border-indigo-100/70 bg-white/60 text-indigo-900 hover:border-indigo-300 dark:border-indigo-500/10 dark:bg-slate-900/40 dark:text-indigo-200 dark:hover:border-indigo-400/40"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-bold">{isToday(day.date) ? 'Today' : format(day.date, 'dd-MM-yy')}</p>
+                              <p className="text-[11px] font-medium opacity-70">{format(day.date, 'EEEE')}</p>
+                            </div>
+                            <p className="text-sm font-display font-bold">
+                              {day.focusMinutes}<span className="ml-1 text-xs font-medium opacity-70">min</span>
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               {/* Goals Summary */}
@@ -410,12 +464,13 @@ export const CalendarView = () => {
               initial={{ opacity: 0, y: 100, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 100, scale: 0.95 }}
-              className="fixed bottom-0 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-lg bg-white dark:bg-slate-900 rounded-t-[2rem] md:rounded-[2rem] shadow-2xl z-50 max-h-[85vh] overflow-y-auto lg:hidden border border-transparent dark:border-white/10 transition-colors"
+              className="fixed bottom-0 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-lg bg-white dark:bg-slate-900 rounded-t-[1.75rem] md:rounded-[2rem] shadow-2xl z-50 max-h-[88vh] overflow-y-auto lg:hidden border border-transparent dark:border-white/10 transition-colors"
             >
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-6">
+              <div className="p-4 sm:p-6">
+                <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200 dark:bg-white/10 md:hidden" />
+                <div className="flex justify-between items-start mb-5 sm:mb-6">
                   <div>
-                    <h3 className="text-2xl font-display font-bold text-gray-900 dark:text-white">
+                    <h3 className="text-xl sm:text-2xl font-display font-bold text-gray-900 dark:text-white">
                       {format(selectedDate, 'EEEE')}
                     </h3>
                     <p className="text-gray-500 dark:text-gray-400 font-medium">{format(selectedDate, 'MMMM d, yyyy')}</p>
@@ -428,8 +483,8 @@ export const CalendarView = () => {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                  <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-2xl transition-colors">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
+                  <div className="bg-gray-50 dark:bg-slate-800/50 p-3 sm:p-4 rounded-2xl transition-colors">
                     <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-1">
                       <Target className="w-4 h-4" />
                       <span className="text-xs font-bold uppercase tracking-wider">Goals</span>
@@ -438,7 +493,7 @@ export const CalendarView = () => {
                       {selectedDayData.completedGoals.length} <span className="text-sm text-gray-400 dark:text-gray-500">/ {selectedDayData.goals.length}</span>
                     </p>
                   </div>
-                  <div className="bg-indigo-50 dark:bg-indigo-500/10 p-4 rounded-2xl transition-colors flex flex-col justify-between">
+                  <div className="bg-indigo-50 dark:bg-indigo-500/10 p-3 sm:p-4 rounded-2xl transition-colors flex flex-col justify-between">
                     <div>
                       <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 mb-1">
                         <Clock className="w-4 h-4" />
@@ -453,6 +508,44 @@ export const CalendarView = () => {
                         <span className="text-indigo-500 dark:text-indigo-500/70 font-medium whitespace-nowrap">Planned: {Math.round(selectedDayData.plannedSeconds / 60)}m</span>
                       </div>
                     )}
+                  </div>
+                </div>
+
+                <div className="mb-6 sm:mb-8 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3 sm:p-4 dark:border-indigo-500/20 dark:bg-indigo-500/10">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Last 5 Days</p>
+                    <p className="text-[11px] font-medium text-indigo-500/70 dark:text-indigo-400/60">Rolling history</p>
+                  </div>
+                  <div className="space-y-2">
+                    {lastFiveFocusDays.map(day => {
+                      const isActiveDay = isSameDay(day.date, selectedDate);
+
+                      return (
+                        <button
+                          key={day.date.toISOString()}
+                          onClick={() => {
+                            setSelectedDate(day.date);
+                            setCurrentDate(day.date);
+                          }}
+                          className={cn(
+                            "w-full rounded-xl border px-3 py-2 text-left transition-colors",
+                            isActiveDay
+                              ? "border-indigo-400 bg-white text-indigo-950 dark:border-indigo-400/60 dark:bg-indigo-500/20 dark:text-indigo-100"
+                              : "border-indigo-100 bg-white/60 text-indigo-900 dark:border-indigo-500/10 dark:bg-slate-900/40 dark:text-indigo-200"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-bold">{isToday(day.date) ? 'Today' : format(day.date, 'dd-MM-yy')}</p>
+                              <p className="text-[11px] font-medium opacity-70">{format(day.date, 'EEEE')}</p>
+                            </div>
+                            <p className="text-sm font-display font-bold">
+                              {day.focusMinutes}<span className="ml-1 text-xs font-medium opacity-70">min</span>
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 

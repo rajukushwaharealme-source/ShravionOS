@@ -7,10 +7,10 @@ import { collection, query, where, getDocs, doc, getDoc, setDoc, serverTimestamp
 import { 
   LogOut, User as UserIcon, Settings, Bell, Clock, 
   Moon, Sun, Monitor, Shield, ChevronRight, Zap, 
-  Target, Award, Flame, CheckCircle2, Timer, Sparkles, Save
+  Target, Award, Flame, CheckCircle2, Timer, Sparkles, Save, X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'motion/react';
 import { getFocusSessionSeconds, roundFocusSecondsToMinutes } from '../lib/focus-session-cache';
 import {
   ADMIN_EMAIL,
@@ -21,17 +21,25 @@ import {
 } from '../lib/review-suggestions';
 
 export const Profile = () => {
-  const { profile, user } = useAuth();
+  const { profile, user, updateUserProfile } = useAuth();
   const { theme, setTheme } = useTheme();
   const [completedGoals, setCompletedGoals] = useState(0);
   const [focusMinutes, setFocusMinutes] = useState(0);
   const [notifications, setNotifications] = useState(true);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState('');
   const [todaySuggestion, setTodaySuggestion] = useState('');
   const [weeklySuggestionsText, setWeeklySuggestionsText] = useState('');
   const [adminSaving, setAdminSaving] = useState(false);
   const [adminMessage, setAdminMessage] = useState('');
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
+
+  useEffect(() => {
+    setEditDisplayName(profile?.displayName || '');
+  }, [profile]);
 
   useEffect(() => {
     if (!user) return;
@@ -107,6 +115,39 @@ export const Profile = () => {
       setAdminMessage('Saved locally. Firestore permission needs update.');
     } finally {
       setAdminSaving(false);
+    }
+  };
+
+  const openEditProfile = () => {
+    setEditDisplayName(profile?.displayName || '');
+    setProfileMessage('');
+    setShowEditProfile(true);
+  };
+
+  const handleSaveProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editDisplayName.trim()) {
+      setProfileMessage('Name is required.');
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileMessage('');
+
+    try {
+      await updateUserProfile({
+        displayName: editDisplayName
+      });
+      setProfileMessage('Profile updated.');
+      window.setTimeout(() => {
+        setShowEditProfile(false);
+        setProfileMessage('');
+      }, 500);
+    } catch (error) {
+      console.error('Could not update profile', error);
+      setProfileMessage('Could not update profile. Please try again.');
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -248,17 +289,13 @@ export const Profile = () => {
             </div>
             
             <div className="divide-y divide-gray-100 dark:divide-white/5">
-              <button className="w-full p-6 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
+              <button
+                onClick={openEditProfile}
+                className="w-full p-6 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors text-left group"
+              >
                 <div>
                   <p className="font-bold text-gray-900 dark:text-white">Edit Profile</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Update your name and photo</p>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-200 transition-colors" />
-              </button>
-              <button className="w-full p-6 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors text-left group">
-                <div>
-                  <p className="font-bold text-gray-900 dark:text-white">Data & Privacy</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Manage your data export</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Update your display name</p>
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-200 transition-colors" />
               </button>
@@ -340,6 +377,97 @@ export const Profile = () => {
 
         </div>
       </div>
+
+      <AnimatePresence>
+        {showEditProfile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-xl"
+            onClick={() => !profileSaving && setShowEditProfile(false)}
+          >
+            <motion.form
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              onSubmit={handleSaveProfile}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 p-6 dark:border-white/5 dark:bg-slate-800/40">
+                <div>
+                  <h2 className="text-xl font-display font-bold text-gray-900 dark:text-white">Edit Profile</h2>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Update the name shown across your account</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => !profileSaving && setShowEditProfile(false)}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-gray-500 transition-colors hover:text-gray-900 dark:bg-slate-700 dark:text-gray-300 dark:hover:text-white"
+                  aria-label="Close edit profile"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+                <div className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50 p-4 dark:border-white/5 dark:bg-slate-800/40">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-white shadow-sm ring-2 ring-white dark:bg-slate-700 dark:ring-slate-900">
+                    {profile?.photoURL ? (
+                      <img src={profile.photoURL} alt="Profile" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center">
+                        <UserIcon className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900 dark:text-white">{editDisplayName.trim() || 'Your name'}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{profile?.email}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700 dark:text-gray-300">Display Name</label>
+                  <input
+                    value={editDisplayName}
+                    onChange={(event) => setEditDisplayName(event.target.value)}
+                    placeholder="Enter your name"
+                    className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none transition focus:ring-2 focus:ring-blue-500 dark:border-white/10 dark:bg-slate-800/50 dark:text-white dark:placeholder-gray-500"
+                  />
+                </div>
+
+                {profileMessage && (
+                  <p className={cn(
+                    "text-sm font-medium",
+                    profileMessage.includes('updated') ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                  )}>
+                    {profileMessage}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3 border-t border-gray-100 bg-gray-50/70 p-6 dark:border-white/5 dark:bg-slate-800/40">
+                <button
+                  type="button"
+                  onClick={() => !profileSaving && setShowEditProfile(false)}
+                  className="flex-1 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-gray-700 transition hover:bg-gray-100 dark:bg-slate-700 dark:text-gray-200 dark:hover:bg-slate-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="flex-1 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {profileSaving ? 'Saving...' : 'Save Profile'}
+                </button>
+              </div>
+            </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -16,6 +16,21 @@
   body {
     background: #030712;
   }
+
+  select {
+    color-scheme: dark;
+  }
+
+  select option {
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+
+  select option:checked,
+  select option:hover {
+    background: #1d4ed8;
+    color: #ffffff;
+  }
 }
 
 @layer utilities {

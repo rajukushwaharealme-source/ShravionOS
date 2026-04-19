@@ -35,8 +35,19 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
   
   const [editingBlock, setEditingBlock] = useState<Partial<TimeBlock> | null>(null);
   const [activeDateBlocks, setActiveDateBlocks] = useState<TimeBlock[]>([]);
+  const [isCompact, setIsCompact] = useState(false);
   
   const [draggingBlock, setDraggingBlock] = useState<{ id: string, initialTop: number, initialY: number, action: 'move' | 'resize' } | null>(null);
+  const minuteHeight = isCompact ? 1 : MINUTE_HEIGHT;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 640px)');
+    const updateCompactMode = () => setIsCompact(mediaQuery.matches);
+    updateCompactMode();
+
+    mediaQuery.addEventListener('change', updateCompactMode);
+    return () => mediaQuery.removeEventListener('change', updateCompactMode);
+  }, []);
 
   useEffect(() => {
     // Filter blocks for the selected date
@@ -59,7 +70,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
     const y = e.clientY - rect.top;
     
     // Calculate time based on y position
-    const totalMinutesClick = Math.floor(y / MINUTE_HEIGHT);
+    const totalMinutesClick = Math.floor(y / minuteHeight);
     // Snap to 15-minute intervals
     const snappedMinutes = Math.floor(totalMinutesClick / 15) * 15;
     
@@ -82,7 +93,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
     if (!block) return;
 
     const startD = block.startTime?.toDate ? block.startTime.toDate() : new Date(block.startTime);
-    const initialTop = differenceInMinutes(startD, startOfDay(date)) * MINUTE_HEIGHT;
+    const initialTop = differenceInMinutes(startD, startOfDay(date)) * minuteHeight;
 
     setDraggingBlock({
         id: blockId,
@@ -96,7 +107,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
     if (!draggingBlock || !containerRef.current) return;
     
     const deltaY = e.clientY - draggingBlock.initialY;
-    const deltaMinutes = Math.round(deltaY / MINUTE_HEIGHT / 15) * 15; // snap to 15 min
+    const deltaMinutes = Math.round(deltaY / minuteHeight / 15) * 15; // snap to 15 min
 
     if (deltaMinutes === 0 && draggingBlock.action !== 'move') return;
 
@@ -113,7 +124,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
        // Only move if it hasn't actually triggered an update jump yet to avoid drift
        // Usually it's better to calculate based on absolute offset
        const newTop = Math.max(0, draggingBlock.initialTop + deltaY);
-       const newStartMins = Math.round(newTop / MINUTE_HEIGHT / 15) * 15;
+       const newStartMins = Math.round(newTop / minuteHeight / 15) * 15;
        const newStart = addMinutes(startOfDay(date), newStartMins);
        const newEnd = addMinutes(newStart, origDuration);
        
@@ -199,11 +210,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
 
   const calculateTop = (time: Date) => {
     const d = new Date(time);
-    return differenceInMinutes(d, getDayStart) * MINUTE_HEIGHT;
+    return differenceInMinutes(d, getDayStart) * minuteHeight;
   };
 
   const calculateHeight = (start: Date, end: Date) => {
-    return differenceInMinutes(new Date(end), new Date(start)) * MINUTE_HEIGHT;
+    return differenceInMinutes(new Date(end), new Date(start)) * minuteHeight;
   };
 
   const formatHour = (hour: number) => {
@@ -227,7 +238,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
   const activeGoals = goals.filter(g => g.status !== 'completed' && g.status !== 'missed');
 
   return (
-    <div className="flex gap-4 min-h-[800px] mt-6 bg-white dark:bg-slate-900 rounded-[2rem] p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300 relative overflow-hidden">
+    <div className="flex gap-2 sm:gap-4 min-h-[620px] sm:min-h-[800px] mt-4 sm:mt-6 bg-white dark:bg-slate-900 rounded-2xl sm:rounded-[2rem] p-3 sm:p-6 border border-gray-100 dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300 relative overflow-hidden">
       
       {/* Settings / Edit Panel */}
       <AnimatePresence>
@@ -236,7 +247,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            className="absolute right-6 top-6 w-80 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-white/10 p-5 z-30 flex flex-col gap-4 transition-colors"
+            className="fixed inset-x-3 bottom-3 max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-white/10 p-4 sm:absolute sm:inset-auto sm:right-6 sm:top-6 sm:w-80 sm:p-5 z-30 flex flex-col gap-4 transition-colors"
           >
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-gray-900 dark:text-white">
@@ -300,9 +311,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
                 onChange={e => setEditingBlock({...editingBlock, goalId: e.target.value})}
                 className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl px-3 py-2 outline-none focus:border-blue-500 dark:text-white transition-colors"
               >
-                <option value="">None</option>
+                <option value="" className="bg-slate-900 text-slate-100">None</option>
                 {activeGoals.map(g => (
-                  <option key={g.id} value={g.id}>{g.title}</option>
+                  <option key={g.id} value={g.id} className="bg-slate-900 text-slate-100">{g.title}</option>
                 ))}
               </select>
             </div>
@@ -348,9 +359,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
         )}
       </AnimatePresence>
 
-      <div className="w-16 flex flex-col pt-2 shrink-0 border-r border-gray-100 dark:border-white/5 relative z-10">
+      <div className="w-11 sm:w-16 flex flex-col pt-2 shrink-0 border-r border-gray-100 dark:border-white/5 relative z-10">
         {HOURS.map(hour => (
-          <div key={hour} className="relative text-xs text-gray-400 dark:text-gray-500 font-medium font-mono text-right pr-4" style={{ height: 60 * MINUTE_HEIGHT }}>
+          <div key={hour} className="relative text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 font-medium font-mono text-right pr-2 sm:pr-4" style={{ height: 60 * minuteHeight }}>
             <span className="relative -top-2">{formatHour(hour)}</span>
           </div>
         ))}
@@ -359,7 +370,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
       <div 
         ref={containerRef}
         className="flex-1 relative cursor-crosshair group overflow-hidden" 
-        style={{ height: 24 * 60 * MINUTE_HEIGHT, marginTop: '8px', touchAction: 'none' }}
+        style={{ height: 24 * 60 * minuteHeight, marginTop: '8px', touchAction: 'none' }}
         onClick={handleTimelineClick}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -369,7 +380,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
           <div 
             key={hour} 
             className="absolute w-full border-t border-gray-100 dark:border-white/5 pointer-events-none"
-            style={{ top: hour * 60 * MINUTE_HEIGHT }}
+            style={{ top: hour * 60 * minuteHeight }}
           />
         ))}
 
@@ -410,7 +421,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ date, blocks, goals 
               }}
               onPointerDown={(e) => handlePointerDown(e, block.id, 'move')}
               className={cn(
-                "absolute left-2 right-4 rounded-xl border p-2 text-sm flex flex-col justify-between cursor-grab active:cursor-grabbing time-block transition-shadow hover:shadow-md dark:hover:shadow-lg z-10",
+                "absolute left-1.5 right-2 sm:left-2 sm:right-4 rounded-lg sm:rounded-xl border p-1.5 sm:p-2 text-xs sm:text-sm flex flex-col justify-between cursor-grab active:cursor-grabbing time-block transition-shadow hover:shadow-md dark:hover:shadow-lg z-10",
                 getColors(block.color),
                 editingBlock?.id === block.id && "ring-2 ring-gray-900 dark:ring-white z-20",
                 draggingBlock?.id === block.id && "z-30 opacity-90 shadow-xl"

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
+import { User, onAuthStateChanged, updateProfile as updateAuthProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -21,9 +21,15 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  updateUserProfile: (updates: Partial<Pick<UserProfile, 'displayName' | 'photoURL'>>) => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, profile: null, loading: true });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  loading: true,
+  updateUserProfile: async () => {}
+});
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -31,6 +37,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const updateUserProfile = async (updates: Partial<Pick<UserProfile, 'displayName' | 'photoURL'>>) => {
+    if (!user || !profile) return;
+
+    const cleanUpdates = {
+      ...(updates.displayName !== undefined ? { displayName: updates.displayName.trim() } : {}),
+      ...(updates.photoURL !== undefined ? { photoURL: updates.photoURL.trim() } : {})
+    };
+
+    await updateAuthProfile(user, cleanUpdates);
+    await setDoc(doc(db, 'users', user.uid), {
+      ...cleanUpdates,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    setProfile(prev => prev ? { ...prev, ...cleanUpdates } : prev);
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -115,7 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading }}>
+    <AuthContext.Provider value={{ user, profile, loading, updateUserProfile }}>
       {children}
     </AuthContext.Provider>
   );
