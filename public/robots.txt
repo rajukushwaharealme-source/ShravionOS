@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /goals
+Disallow: /focus
+Disallow: /calendar
+Disallow: /analytics
+Disallow: /reviews
+Disallow: /profile
+Disallow: /organization
+Disallow: /login
+
+Sitemap: https://shravionos.com/sitemap.xml

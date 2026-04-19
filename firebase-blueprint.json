@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and gamification stats",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "xp": { "type": "number" },
+        "level": { "type": "number" },
+        "currentStreak": { "type": "number" },
+        "longestStreak": { "type": "number" },
+        "lastActiveDate": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["uid", "email", "xp", "level", "currentStreak", "longestStreak", "createdAt", "role"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "High-level grouping like Study, Work, Fitness",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "color": { "type": "string" },
+        "icon": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "name", "color", "icon", "createdAt"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Sub-grouping under a Category",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "categoryId", "name", "createdAt"]
+    },
+    "Topic": {
+      "title": "Topic",
+      "description": "Specific topic or concept under a Subject",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "name": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "subjectId", "name", "createdAt"]
+    },
+    "Concept": {
+      "title": "Concept",
+      "description": "Specific concept under a Topic",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "topicId": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "topicId", "name", "createdAt"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "A specific task or goal to track",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "topicId": { "type": "string" },
+        "conceptId": { "type": "string" },
+        "deadline": { "type": "timestamp" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["pending", "in-progress", "completed", "missed"] },
+        "type": { "type": "string", "enum": ["daily", "weekly", "monthly", "one-time"] },
+        "progressType": { "type": "string", "enum": ["checkbox", "percentage", "numeric", "duration"] },
+        "targetValue": { "type": "number" },
+        "completedValue": { "type": "number" },
+        "estimatedTime": { "type": "number" },
+        "actualTime": { "type": "number" },
+        "repeatSchedule": { "type": "string" },
+        "notes": { "type": "string" },
+        "subTasks": { 
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "completed": { "type": "boolean" } } }
+        },
+        "completedAt": { "type": "timestamp" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "title", "categoryId", "priority", "status", "type", "createdAt"]
+    },
+    "TimerSession": {
+      "title": "Timer Session",
+      "description": "Record of a completed timer session",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "goalId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "durationSeconds": { "type": "number" },
+        "startTime": { "type": "timestamp" },
+        "endTime": { "type": "timestamp" },
+        "notes": { "type": "string" },
+        "sessionType": { "type": "string", "enum": ["goal", "focus", "free"] },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "durationSeconds", "startTime", "endTime", "sessionType", "createdAt"]
+    },
+    "TimeBlock": {
+      "title": "Time Block",
+      "description": "A scheduled block of time in the calendar timeline",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "title": { "type": "string" },
+        "goalId": { "type": "string" },
+        "startTime": { "type": "timestamp" },
+        "endTime": { "type": "timestamp" },
+        "color": { "type": "string" },
+        "status": { "type": "string", "enum": ["planned", "completed", "missed"] },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "title", "startTime", "endTime", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and gamification stats"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "User-created categories"
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/Subject" },
+      "description": "User-created subjects"
+    },
+    "/topics/{topicId}": {
+      "schema": { "$ref": "#/entities/Topic" },
+      "description": "User-created topics"
+    },
+    "/concepts/{conceptId}": {
+      "schema": { "$ref": "#/entities/Concept" },
+      "description": "User-created concepts"
+    },
+    "/goals/{goalId}": {
+      "schema": { "$ref": "#/entities/Goal" },
+      "description": "User goals and tasks"
+    },
+    "/timerSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/TimerSession" },
+      "description": "Completed timer sessions"
+    },
+    "/timeBlocks/{blockId}": {
+      "schema": { "$ref": "#/entities/TimeBlock" },
+      "description": "Scheduled time blocks on a calendar timeline"
+    }
+  }
+}
