@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, updateProfile as updateAuthProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { cleanupOldFocusSessionsFromFirestore } from '../lib/focus-session-retention';
 
 interface UserProfile {
   uid: string;
@@ -60,6 +61,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
       
       if (currentUser) {
+        cleanupOldFocusSessionsFromFirestore(db, currentUser.uid).catch(error => {
+          console.error('Could not clean up old focus sessions', error);
+        });
+
         // Fetch or create user profile
         const userRef = doc(db, 'users', currentUser.uid);
         const userSnap = await getDoc(userRef);

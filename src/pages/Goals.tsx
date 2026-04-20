@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, deleteField, setDoc, Timestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
-import { Plus, CheckCircle2, Circle, Folder, Target, X, Search, MoreVertical, Edit2, Trash2, ChevronDown, ChevronUp, Clock, Play } from 'lucide-react';
+import { Plus, CheckCircle2, Circle, Folder, Target, X, Search, MoreVertical, Edit2, Trash2, ChevronDown, ChevronUp, Clock, Play, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -91,6 +91,7 @@ export const Goals = () => {
   // Validation & Feedback State
   const [errors, setErrors] = useState<{title?: string, category?: string, date?: string}>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [firstCategorySyncNotice, setFirstCategorySyncNotice] = useState(false);
 
   // Action Menu State
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -396,7 +397,7 @@ export const Goals = () => {
 
     // Validation
     const newErrors: any = {};
-    if (!newGoalTitle.trim()) newErrors.title = 'Title is required';
+    if (!newGoalTitle.trim()) newErrors.title = 'Topic is required';
     if (!isCreatingCategory && !newGoalCategory) newErrors.category = 'Category is required';
     if (isCreatingCategory && !inlineCategoryName.trim()) newErrors.category = 'Category name is required';
     if (goalStartDate && goalEndDate && new Date(goalEndDate).getTime() < new Date(goalStartDate).getTime()) {
@@ -418,6 +419,7 @@ export const Goals = () => {
     try {
       previousGoalsSnapshot = goals;
       let finalCategoryId = newGoalCategory;
+      const shouldShowFirstCategorySyncNotice = !editingGoal && isCreatingCategory && categories.length === 0;
       
       // Handle inline category creation
       if (isCreatingCategory) {
@@ -578,6 +580,9 @@ export const Goals = () => {
         resetGoalForm();
         showToast('Goal created successfully');
         await setDoc(goalRef, createData);
+        if (shouldShowFirstCategorySyncNotice) {
+          setFirstCategorySyncNotice(true);
+        }
       }
     } catch (error) {
       if (pendingOptimisticGoalId) {
@@ -712,6 +717,54 @@ export const Goals = () => {
           >
             <CheckCircle2 className="w-4 h-4 text-green-400" />
             {toastMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* First Category Sync Notice */}
+      <AnimatePresence>
+        {firstCategorySyncNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            className="fixed bottom-24 left-1/2 z-[110] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-blue-200 bg-white p-4 shadow-2xl dark:border-blue-500/30 dark:bg-slate-900 md:bottom-8"
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-gray-900 dark:text-white">First goal is syncing</p>
+                <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
+                  If your first goal does not appear right away, refresh once to load the new category.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-blue-700"
+                  >
+                    Refresh page
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFirstCategorySyncNotice(false)}
+                    className="rounded-xl bg-gray-100 px-4 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:hover:bg-slate-700"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFirstCategorySyncNotice(false)}
+                className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-slate-800 dark:hover:text-gray-200"
+                aria-label="Dismiss sync notice"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1189,10 +1242,10 @@ export const Goals = () => {
               <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
                 <form id="goal-form" onSubmit={handleSaveGoal} className="space-y-6">
                   
-                  {/* Title */}
+                  {/* Topic */}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 ml-1">
-                      Title <span className="text-red-500">*</span>
+                      Topic <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"

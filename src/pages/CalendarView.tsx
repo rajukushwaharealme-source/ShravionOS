@@ -5,19 +5,27 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { 
   format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, isFuture, 
-  startOfWeek, endOfWeek, addMonths, subMonths, addWeeks, subWeeks, subDays, addDays, parseISO
+  startOfWeek, endOfWeek, addMonths, subMonths, addWeeks, subWeeks, subDays, addDays, parseISO, differenceInCalendarDays
 } from 'date-fns';
 import { cn } from '../lib/utils';
 import { withGoalDisplayStatus } from '../lib/goal-status';
-import { FOCUS_SESSIONS_UPDATED_EVENT, getFocusSessionDate, getFocusSessionSeconds, mergeFocusSessionsWithCache, roundFocusSecondsToMinutes } from '../lib/focus-session-cache';
+import { FOCUS_SESSION_RETENTION_DAYS_LABEL, FOCUS_SESSIONS_UPDATED_EVENT, getFocusSessionDate, getFocusSessionSeconds, mergeFocusSessionsWithCache, roundFocusSecondsToMinutes } from '../lib/focus-session-cache';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Target, CheckCircle2, AlertCircle, X, AlignLeft } from 'lucide-react';
 import { TimelineView } from '../components/TimelineView';
 
 type ViewMode = 'month' | 'week' | 'timeline';
 
+const toCalendarDate = (value: any): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value.toDate === 'function') return value.toDate();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 export const CalendarView = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [goals, setGoals] = useState<any[]>([]);
   const [statusClock, setStatusClock] = useState(new Date());
   const [sessions, setSessions] = useState<any[]>([]);
@@ -145,8 +153,17 @@ export const CalendarView = () => {
   };
 
   const selectedDayData = getDayData(selectedDate);
-  const lastFiveFocusDays = useMemo(() => {
-    return Array.from({ length: 5 }, (_, index) => {
+  const signupDate = useMemo(() => {
+    return toCalendarDate(profile?.createdAt) || toCalendarDate(user?.metadata.creationTime);
+  }, [profile?.createdAt, user?.metadata.creationTime]);
+
+  const recentFocusDays = useMemo(() => {
+    const daysSinceSignup = signupDate
+      ? Math.max(1, differenceInCalendarDays(statusClock, signupDate) + 1)
+      : 30;
+    const daysToShow = Math.min(30, daysSinceSignup);
+
+    return Array.from({ length: daysToShow }, (_, index) => {
       const date = subDays(statusClock, index);
       const focusSeconds = sessions.reduce((acc, session) => {
         const sessionDate = getFocusSessionDate(session);
@@ -159,7 +176,7 @@ export const CalendarView = () => {
         focusMinutes: roundFocusSecondsToMinutes(focusSeconds)
       };
     });
-  }, [sessions, statusClock]);
+  }, [sessions, signupDate, statusClock]);
 
   if (loading) {
     return <div className="p-4 sm:p-6 pb-24 animate-pulse dark:bg-transparent dark:text-white min-h-screen transition-colors duration-300">Loading calendar...</div>;
@@ -382,11 +399,11 @@ export const CalendarView = () => {
 
                 <div className="pt-3 border-t border-indigo-200 dark:border-indigo-500/20">
                   <div className="mb-3 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-500/70">Last 5 Days</p>
-                    <p className="text-[11px] font-medium text-indigo-500/70 dark:text-indigo-400/60">Rolling history</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-500/70">Last 30 Days</p>
+                    <p className="text-[11px] font-medium text-indigo-500/70 dark:text-indigo-400/60">Rolling {FOCUS_SESSION_RETENTION_DAYS_LABEL}</p>
                   </div>
-                  <div className="space-y-2">
-                    {lastFiveFocusDays.map(day => {
+                  <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {recentFocusDays.map(day => {
                       const isActiveDay = isSameDay(day.date, selectedDate);
 
                       return (
@@ -513,11 +530,11 @@ export const CalendarView = () => {
 
                 <div className="mb-6 sm:mb-8 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3 sm:p-4 dark:border-indigo-500/20 dark:bg-indigo-500/10">
                   <div className="mb-3 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Last 5 Days</p>
-                    <p className="text-[11px] font-medium text-indigo-500/70 dark:text-indigo-400/60">Rolling history</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Last 30 Days</p>
+                    <p className="text-[11px] font-medium text-indigo-500/70 dark:text-indigo-400/60">Rolling {FOCUS_SESSION_RETENTION_DAYS_LABEL}</p>
                   </div>
-                  <div className="space-y-2">
-                    {lastFiveFocusDays.map(day => {
+                  <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {recentFocusDays.map(day => {
                       const isActiveDay = isSameDay(day.date, selectedDate);
 
                       return (

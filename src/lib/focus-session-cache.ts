@@ -17,6 +17,7 @@ export type CachedFocusSession = {
 
 const CACHED_FOCUS_SESSIONS_KEY = 'focusApp.cachedFocusSessions.v1';
 export const FOCUS_SESSIONS_UPDATED_EVENT = 'focus-sessions-updated';
+export const FOCUS_SESSION_RETENTION_DAYS_LABEL = '30 days';
 
 export const createClientSessionId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -44,6 +45,39 @@ export const roundFocusSecondsToMinutes = (seconds: number) => {
   return Math.round(safeSeconds / 60);
 };
 
+const startOfLocalDay = (date: Date) => {
+  const nextDate = new Date(date);
+  nextDate.setHours(0, 0, 0, 0);
+  return nextDate;
+};
+
+export const getFocusRetentionCutoffDate = (now = new Date()) => {
+  const cutoff = startOfLocalDay(now);
+  const currentDay = cutoff.getDate();
+  cutoff.setDate(1);
+  cutoff.setMonth(cutoff.getMonth() - 1);
+  const lastDayOfCutoffMonth = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, 0).getDate();
+  cutoff.setDate(Math.min(currentDay, lastDayOfCutoffMonth));
+  return cutoff;
+};
+
+export const isFocusSessionInRetentionWindow = (session: CachedFocusSession, now = new Date()) => {
+  const sessionDate = getFocusSessionDate(session);
+  if (!sessionDate) return true;
+  return startOfLocalDay(sessionDate).getTime() > getFocusRetentionCutoffDate(now).getTime();
+};
+
+export const pruneFocusSessionsToRetentionWindow = (sessions: CachedFocusSession[], now = new Date()) => {
+  return sessions.filter(session => getFocusSessionSeconds(session) > 0 && isFocusSessionInRetentionWindow(session, now));
+};
+
+export const shouldDeleteFocusSessionFromFirestore = (session: CachedFocusSession, now = new Date()) => {
+  if (session.isTimeBlock) return false;
+  const sessionDate = getFocusSessionDate(session);
+  if (!sessionDate) return false;
+  return startOfLocalDay(sessionDate).getTime() <= getFocusRetentionCutoffDate(now).getTime();
+};
+
 export const readCachedFocusSessions = (): CachedFocusSession[] => {
   if (typeof window === 'undefined') return [];
 
@@ -51,7 +85,14 @@ export const readCachedFocusSessions = (): CachedFocusSession[] => {
     const rawSessions = window.localStorage.getItem(CACHED_FOCUS_SESSIONS_KEY);
     if (!rawSessions) return [];
     const sessions = JSON.parse(rawSessions);
-    return Array.isArray(sessions) ? sessions.filter(session => getFocusSessionSeconds(session) > 0) : [];
+    if (!Array.isArray(sessions)) return [];
+
+    const prunedSessions = pruneFocusSessionsToRetentionWindow(sessions);
+    if (prunedSessions.length !== sessions.length) {
+      window.localStorage.setItem(CACHED_FOCUS_SESSIONS_KEY, JSON.stringify(prunedSessions));
+    }
+
+    return prunedSessions;
   } catch (error) {
     console.error('Could not read cached focus sessions', error);
     return [];
@@ -64,11 +105,7 @@ export const cacheFocusSession = (session: CachedFocusSession) => {
   const sessions = readCachedFocusSessions();
   const sessionId = session.clientSessionId || createClientSessionId();
   const nextSession = { ...session, clientSessionId: sessionId };
-  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
-  const pruned = sessions.filter(item => {
-    const date = getFocusSessionDate(item);
-    return date ? date.getTime() >= cutoff : true;
-  });
+  const pruned = pruneFocusSessionsToRetentionWindow(sessions);
   const existingIndex = pruned.findIndex(item => item.clientSessionId === sessionId);
 
   if (existingIndex >= 0) {
@@ -82,8 +119,9 @@ export const cacheFocusSession = (session: CachedFocusSession) => {
 };
 
 export const mergeFocusSessionsWithCache = (remoteSessions: CachedFocusSession[]) => {
+  const retainedRemoteSessions = pruneFocusSessionsToRetentionWindow(remoteSessions);
   const remoteClientIds = new Set(
-    remoteSessions
+    retainedRemoteSessions
       .map(session => session.clientSessionId)
       .filter(Boolean)
   );
@@ -91,5 +129,5 @@ export const mergeFocusSessionsWithCache = (remoteSessions: CachedFocusSession[]
     return session.clientSessionId && !remoteClientIds.has(session.clientSessionId);
   });
 
-  return [...remoteSessions, ...cachedSessions];
+  return [...retainedRemoteSessions, ...cachedSessions];
 };
