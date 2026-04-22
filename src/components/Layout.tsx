@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigation } from './Navigation';
+import { ReminderCenter } from './ReminderCenter';
 import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -24,6 +25,7 @@ export const Layout = () => {
   return (
     <div className="min-h-screen bg-[#FAFAFA] dark:bg-gradient-to-br dark:from-[#0B1220] dark:to-[#111827] dark:text-slate-50 font-sans flex overflow-hidden transition-colors duration-300 selection:bg-blue-500/30 selection:text-blue-200">
       <Navigation />
+      <ReminderCenter />
       <main className="flex-1 relative h-screen overflow-y-auto overflow-x-hidden">
         <div className="max-w-7xl mx-auto w-full pb-24 md:pb-8">
           <AnimatePresence mode="wait">

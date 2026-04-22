@@ -3,6 +3,7 @@ import { User, onAuthStateChanged, updateProfile as updateAuthProfile } from 'fi
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { cleanupOldFocusSessionsFromFirestore } from '../lib/focus-session-retention';
+import { ReminderSettings } from '../lib/reminders';
 
 interface UserProfile {
   uid: string;
@@ -16,6 +17,7 @@ interface UserProfile {
   lastActiveDate: string;
   createdAt: any;
   role: 'user' | 'admin';
+  reminderSettings?: ReminderSettings;
 }
 
 interface AuthContextType {

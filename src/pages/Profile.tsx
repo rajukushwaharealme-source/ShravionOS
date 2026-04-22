@@ -27,13 +27,21 @@ import {
   readLocalShravionProducts,
   saveLocalShravionProducts
 } from '../lib/shravion-products';
+import {
+  ReminderSettings,
+  normalizeReminderSettings,
+  readReminderSettings,
+  saveReminderSettings
+} from '../lib/reminders';
 
 export const Profile = () => {
   const { profile, user, updateUserProfile } = useAuth();
   const { theme, setTheme } = useTheme();
   const [completedGoals, setCompletedGoals] = useState(0);
   const [focusMinutes, setFocusMinutes] = useState(0);
-  const [notifications, setNotifications] = useState(true);
+  const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(() => normalizeReminderSettings(null));
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState('');
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editDisplayName, setEditDisplayName] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -53,6 +61,13 @@ export const Profile = () => {
   useEffect(() => {
     setEditDisplayName(profile?.displayName || '');
   }, [profile]);
+
+  useEffect(() => {
+    if (!user) return;
+    const settings = normalizeReminderSettings(profile?.reminderSettings || readReminderSettings(user.uid));
+    setReminderSettings(settings);
+    saveReminderSettings(user.uid, settings);
+  }, [profile?.reminderSettings, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -252,6 +267,64 @@ export const Profile = () => {
     }
   };
 
+  const persistReminderSettings = async (updates: Partial<ReminderSettings>) => {
+    if (!user) return;
+
+    const nextSettings = normalizeReminderSettings({ ...reminderSettings, ...updates });
+    setReminderSettings(nextSettings);
+    saveReminderSettings(user.uid, nextSettings);
+    setReminderSaving(true);
+    setReminderMessage('');
+
+    if (nextSettings.enabled && 'Notification' in window && Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+
+    try {
+      await setDoc(doc(db, 'users', user.uid), {
+        reminderSettings: nextSettings,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setReminderMessage('Reminder settings saved.');
+    } catch (error) {
+      console.error('Could not save reminder settings', error);
+      setReminderMessage('Saved on this device. Cloud sync needs permission.');
+    } finally {
+      setReminderSaving(false);
+      window.setTimeout(() => setReminderMessage(''), 2500);
+    }
+  };
+
+  const renderReminderToggle = (
+    label: string,
+    description: string,
+    checked: boolean,
+    onChange: () => void,
+    disabled = false
+  ) => (
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-gray-50/70 p-4 dark:border-white/5 dark:bg-slate-800/35">
+      <div>
+        <p className="font-bold text-gray-900 dark:text-white">{label}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
+      </div>
+      <button
+        type="button"
+        disabled={disabled || reminderSaving}
+        onClick={onChange}
+        className={cn(
+          "relative h-7 w-14 rounded-full border border-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+          checked ? "bg-blue-600" : "bg-gray-200 dark:border-white/10 dark:bg-slate-700"
+        )}
+        aria-pressed={checked}
+      >
+        <span className={cn(
+          "absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all",
+          checked ? "left-8" : "left-1"
+        )} />
+      </button>
+    </div>
+  );
+
   const focusHours = Math.floor(focusMinutes / 60);
 
   return (
@@ -359,23 +432,77 @@ export const Profile = () => {
               </div>
 
               {/* Notifications */}
-              <div className="p-6 flex items-center justify-between">
-                <div>
-                  <p className="font-bold text-gray-900 dark:text-white">Notifications</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Reminders and timer alerts</p>
-                </div>
-                <button 
-                  onClick={() => setNotifications(!notifications)}
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative border border-transparent",
-                    notifications ? "bg-blue-500 dark:bg-blue-600" : "bg-gray-200 dark:bg-slate-700 dark:border-white/10"
+              <div className="p-6 space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-bold text-gray-900 dark:text-white">Notifications & Reminders</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Goal starts, deadlines, daily nudges, completion alerts, and focus timer reminders</p>
+                  </div>
+                  {reminderMessage && (
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{reminderMessage}</p>
                   )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 rounded-full bg-white transition-all shadow-sm",
-                    notifications ? "left-7" : "left-1"
-                  )} />
-                </button>
+                </div>
+
+                <div className="space-y-3">
+                  {renderReminderToggle(
+                    'Enable reminders',
+                    'Allow smart reminders for goals, subtasks, and focus sessions',
+                    reminderSettings.enabled,
+                    () => persistReminderSettings({ enabled: !reminderSettings.enabled })
+                  )}
+                  {renderReminderToggle(
+                    'Sound on reminder',
+                    'Play a soft alert tone when a reminder appears',
+                    reminderSettings.soundEnabled,
+                    () => persistReminderSettings({ soundEnabled: !reminderSettings.soundEnabled }),
+                    !reminderSettings.enabled
+                  )}
+                  {renderReminderToggle(
+                    'Vibration on reminder',
+                    'Use device vibration on supported phones',
+                    reminderSettings.vibrationEnabled,
+                    () => persistReminderSettings({ vibrationEnabled: !reminderSettings.vibrationEnabled }),
+                    !reminderSettings.enabled
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 dark:border-white/5 dark:bg-slate-800/35">
+                    <span className="block text-sm font-bold text-gray-900 dark:text-white">Deadline reminder</span>
+                    <span className="mt-1 block text-sm text-gray-500 dark:text-gray-400">Minutes before a goal or subtask is due</span>
+                    <select
+                      value={reminderSettings.preDeadlineMinutes ?? 'off'}
+                      disabled={!reminderSettings.enabled || reminderSaving}
+                      onChange={(event) => persistReminderSettings({
+                        preDeadlineMinutes: event.target.value === 'off' ? null : Number(event.target.value)
+                      })}
+                      className="mt-3 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-900 outline-none transition focus:ring-2 focus:ring-blue-500 disabled:opacity-60 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                    >
+                      <option value="off">Off</option>
+                      {[10, 15, 30, 60].map((minutes) => (
+                        <option key={minutes} value={minutes}>{minutes} min before</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 dark:border-white/5 dark:bg-slate-800/35">
+                    <span className="block text-sm font-bold text-gray-900 dark:text-white">Daily reminder time</span>
+                    <span className="mt-1 block text-sm text-gray-500 dark:text-gray-400">Fallback for goals without a start or deadline</span>
+                    <select
+                      value={reminderSettings.dailyReminderHour ?? 'off'}
+                      disabled={!reminderSettings.enabled || reminderSaving}
+                      onChange={(event) => persistReminderSettings({
+                        dailyReminderHour: event.target.value === 'off' ? null : Number(event.target.value)
+                      })}
+                      className="mt-3 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-900 outline-none transition focus:ring-2 focus:ring-blue-500 disabled:opacity-60 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                    >
+                      <option value="off">Off</option>
+                      {[8, 9, 10, 12, 17, 20].map((hour) => (
+                        <option key={hour} value={hour}>{hour.toString().padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
             </div>
           </div>

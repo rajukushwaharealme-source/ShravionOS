@@ -8,13 +8,16 @@ import { Play, Pause, Square, RotateCcw, Target, Clock, Coffee, ChevronDown, Che
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { cacheFocusSession, createClientSessionId, roundFocusSecondsToMinutes } from '../lib/focus-session-cache';
+import { ACTIVE_FOCUS_TIMER_STORAGE_KEY, requestReminderNotification } from '../lib/reminders';
 
 type TimerMode = 'goal' | 'focus' | 'free';
 type TimerState = 'idle' | 'running' | 'paused' | 'break';
+type ActiveTimerState = Extract<TimerState, 'running' | 'break'>;
 type GoalTimerStyle = 'timed' | 'free';
 type StoredFocusTimer = {
   mode: TimerMode;
   timerState: TimerState;
+  pausedTimerState: ActiveTimerState | null;
   goalTimerStyle: GoalTimerStyle;
   selectedGoalId: string | null;
   selectedSubTaskId: string | null;
@@ -22,12 +25,14 @@ type StoredFocusTimer = {
   breakDuration: number;
   timeLeft: number;
   elapsedTime: number;
+  activeStartedAtMs: number | null;
+  elapsedBeforeStartSeconds: number;
   notes: string;
   startTime: string | null;
   savedAt: number;
 };
 
-const FOCUS_TIMER_STORAGE_KEY = 'focusApp.activeTimer.v1';
+const FOCUS_TIMER_STORAGE_KEY = ACTIVE_FOCUS_TIMER_STORAGE_KEY;
 const ALLOWED_GOAL_TYPES = ['daily', 'weekly', 'monthly', 'one-time'];
 const ALLOWED_PROGRESS_TYPES = ['checkbox', 'percentage', 'duration'];
 const normalizeGoalType = (value?: string) => ALLOWED_GOAL_TYPES.includes(value || '') ? value! : 'one-time';
@@ -51,6 +56,9 @@ export const Focus = () => {
   // Tracking
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0); // For free timer
+  const [activeStartedAtMs, setActiveStartedAtMs] = useState<number | null>(null);
+  const [elapsedBeforeStartSeconds, setElapsedBeforeStartSeconds] = useState(0);
+  const [pausedTimerState, setPausedTimerState] = useState<ActiveTimerState | null>(null);
   
   // Data
   const [goals, setGoals] = useState<any[]>([]);
@@ -60,6 +68,7 @@ export const Focus = () => {
   const [confirmAction, setConfirmAction] = useState<{ type: 'save' | 'changeMode' | 'reset', payload?: any } | null>(null);
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const completingTimerRef = useRef(false);
   const skipFirstPersistRef = useRef(true);
   const selectedGoal = goals.find(g => g.id === selectedGoalId);
   const selectedSubTasks = Array.isArray(selectedGoal?.subTasks) ? selectedGoal.subTasks : [];
@@ -75,6 +84,38 @@ export const Focus = () => {
     if (target <= 0) return Math.max(1, Number(locationState?.durationMinutes || 25));
     const actual = Number(goal?.completedValue ?? goal?.actualTime ?? 0);
     return Math.max(1, Math.ceil(target - actual));
+  };
+
+  const isStopwatchMode = () => mode === 'free' || (mode === 'goal' && goalTimerStyle === 'free');
+
+  const getCurrentSegmentElapsed = (now = Date.now()) => {
+    const activeElapsed = (timerState === 'running' || timerState === 'break') && activeStartedAtMs
+      ? Math.max(0, Math.floor((now - activeStartedAtMs) / 1000))
+      : 0;
+
+    return Math.max(0, elapsedBeforeStartSeconds + activeElapsed);
+  };
+
+  const getActiveTimerState = (): ActiveTimerState =>
+    timerState === 'break' || pausedTimerState === 'break' ? 'break' : 'running';
+
+  const getCurrentTimerSnapshot = (now = Date.now()) => {
+    const segmentElapsed = getCurrentSegmentElapsed(now);
+
+    if (isStopwatchMode()) {
+      return {
+        elapsedSeconds: segmentElapsed,
+        timeLeftSeconds: timeLeft,
+        segmentElapsed
+      };
+    }
+
+    const segmentDuration = getActiveTimerState() === 'break' ? breakDuration : workDuration;
+    return {
+      elapsedSeconds: elapsedTime,
+      timeLeftSeconds: Math.max(0, segmentDuration - segmentElapsed),
+      segmentElapsed
+    };
   };
 
   useEffect(() => {
@@ -97,6 +138,9 @@ export const Focus = () => {
     setGoalTimerStyle('timed');
     setTimerState('idle');
     setElapsedTime(0);
+    setElapsedBeforeStartSeconds(0);
+    setActiveStartedAtMs(null);
+    setPausedTimerState(null);
     setStartTime(null);
 
     if (locationState.durationMinutes) {
@@ -123,22 +167,30 @@ export const Focus = () => {
         return;
       }
 
-      const secondsAway = stored.timerState === 'running' || stored.timerState === 'break'
-        ? Math.max(0, Math.floor((Date.now() - Number(stored.savedAt || Date.now())) / 1000))
-        : 0;
+      const now = Date.now();
       const isStoredStopwatch = stored.mode === 'free' || (stored.mode === 'goal' && stored.goalTimerStyle === 'free');
-      const nextElapsed = isStoredStopwatch ? Math.max(0, Number(stored.elapsedTime || 0) + secondsAway) : Math.max(0, Number(stored.elapsedTime || 0));
+      const storedPausedTimerState = stored.pausedTimerState === 'break' ? 'break' : stored.pausedTimerState === 'running' ? 'running' : null;
+      const activeTimerState = stored.timerState === 'break' || storedPausedTimerState === 'break' ? 'break' : 'running';
+      const segmentDuration = activeTimerState === 'break'
+        ? Math.max(60, Number(stored.breakDuration || 300))
+        : Math.max(60, Number(stored.workDuration || 1500));
+      const storedBaseElapsed = Number.isFinite(Number(stored.elapsedBeforeStartSeconds))
+        ? Math.max(0, Number(stored.elapsedBeforeStartSeconds))
+        : isStoredStopwatch
+          ? Math.max(0, Number(stored.elapsedTime || 0))
+          : Math.max(0, segmentDuration - Number(stored.timeLeft || segmentDuration));
+      const restoredActiveStartedAtMs = (stored.timerState === 'running' || stored.timerState === 'break')
+        ? Number(stored.activeStartedAtMs || stored.savedAt || now)
+        : null;
+      const secondsSinceActiveStart = restoredActiveStartedAtMs
+        ? Math.max(0, Math.floor((now - restoredActiveStartedAtMs) / 1000))
+        : 0;
+      const nextSegmentElapsed = storedBaseElapsed + secondsSinceActiveStart;
+      const nextElapsed = isStoredStopwatch ? nextSegmentElapsed : Math.max(0, Number(stored.elapsedTime || 0));
       const nextTimeLeft = isStoredStopwatch
         ? Math.max(1, Number(stored.timeLeft || stored.workDuration || 1500))
-        : Math.max(0, Number(stored.timeLeft || stored.workDuration || 1500) - secondsAway);
-
-      if (!isStoredStopwatch && stored.timerState === 'break' && nextTimeLeft <= 0) {
-        clearStoredTimer();
-        return;
-      }
-      const restoredTimerState = !isStoredStopwatch && stored.timerState === 'running' && nextTimeLeft <= 0
-        ? 'paused'
-        : (stored.timerState || 'idle');
+        : Math.max(0, segmentDuration - nextSegmentElapsed);
+      const restoredTimerState = stored.timerState || 'idle';
 
       setMode(stored.mode || 'focus');
       setGoalTimerStyle(stored.goalTimerStyle || 'timed');
@@ -150,6 +202,9 @@ export const Focus = () => {
       setElapsedTime(nextElapsed);
       setNotes(stored.notes || '');
       setStartTime(stored.startTime ? new Date(stored.startTime) : null);
+      setElapsedBeforeStartSeconds(storedBaseElapsed);
+      setActiveStartedAtMs(restoredActiveStartedAtMs);
+      setPausedTimerState(storedPausedTimerState);
       setTimerState(restoredTimerState);
     } catch (error) {
       console.error('Could not restore focus timer', error);
@@ -172,6 +227,7 @@ export const Focus = () => {
     const timerSnapshot: StoredFocusTimer = {
       mode,
       timerState,
+      pausedTimerState,
       goalTimerStyle,
       selectedGoalId,
       selectedSubTaskId,
@@ -179,13 +235,15 @@ export const Focus = () => {
       breakDuration,
       timeLeft,
       elapsedTime,
+      activeStartedAtMs,
+      elapsedBeforeStartSeconds,
       notes,
       startTime: startTime ? startTime.toISOString() : null,
       savedAt: Date.now()
     };
 
     window.localStorage.setItem(FOCUS_TIMER_STORAGE_KEY, JSON.stringify(timerSnapshot));
-  }, [mode, timerState, goalTimerStyle, selectedGoalId, selectedSubTaskId, workDuration, breakDuration, timeLeft, elapsedTime, notes, startTime]);
+  }, [mode, timerState, pausedTimerState, goalTimerStyle, selectedGoalId, selectedSubTaskId, workDuration, breakDuration, timeLeft, elapsedTime, activeStartedAtMs, elapsedBeforeStartSeconds, notes, startTime]);
 
   useEffect(() => {
     if (mode !== 'goal' || goalTimerStyle !== 'timed' || timerState !== 'idle' || !selectedGoal) return;
@@ -208,64 +266,114 @@ export const Focus = () => {
   }, [selectedGoalId, selectedSubTaskId, selectedSubTasks]);
 
   useEffect(() => {
+    const syncTimerDisplay = () => {
+      if (timerState !== 'running' && timerState !== 'break') return;
+
+      const snapshot = getCurrentTimerSnapshot();
+      if (isStopwatchMode()) {
+        setElapsedTime(prev => prev === snapshot.elapsedSeconds ? prev : snapshot.elapsedSeconds);
+        return;
+      }
+
+      setTimeLeft(prev => prev === snapshot.timeLeftSeconds ? prev : snapshot.timeLeftSeconds);
+      if (snapshot.timeLeftSeconds <= 0) {
+        const segmentDuration = timerState === 'break' ? breakDuration : workDuration;
+        handleTimerComplete(timerState, Math.max(0, snapshot.segmentElapsed - segmentDuration));
+      }
+    };
+
     if (timerState === 'running' || timerState === 'break') {
-      timerRef.current = setInterval(() => {
-        if (mode === 'free' || (mode === 'goal' && goalTimerStyle === 'free')) {
-          setElapsedTime(prev => prev + 1);
-        } else {
-          setTimeLeft(prev => {
-            if (prev <= 1) {
-              handleTimerComplete();
-              return 0;
-            }
-            return prev - 1;
-          });
-        }
-      }, 1000);
+      syncTimerDisplay();
+      timerRef.current = setInterval(syncTimerDisplay, 500);
+      document.addEventListener('visibilitychange', syncTimerDisplay);
+      window.addEventListener('focus', syncTimerDisplay);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
     }
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      document.removeEventListener('visibilitychange', syncTimerDisplay);
+      window.removeEventListener('focus', syncTimerDisplay);
     };
-  }, [timerState, mode, goalTimerStyle]);
+  }, [timerState, mode, goalTimerStyle, activeStartedAtMs, elapsedBeforeStartSeconds, workDuration, breakDuration, pausedTimerState]);
 
-  const handleTimerComplete = async () => {
+  const handleTimerComplete = async (completedState: ActiveTimerState = getActiveTimerState(), overflowSeconds = 0) => {
+    if (completingTimerRef.current) return;
+    completingTimerRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     
-    // Play sound
-    try {
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-      audio.play();
-    } catch (e) {}
-
-    if (timerState === 'running') {
-              await saveSession(workDuration);
+    if (completedState === 'running') {
+      requestReminderNotification({
+        id: `focus-complete:${startTime?.getTime() || Date.now()}`,
+        title: 'Focus session complete',
+        body: 'Focus session completed. Take a break.',
+        tag: 'focus-session-complete'
+      });
+      await saveSession(workDuration);
       if (mode === 'focus') {
-        setTimerState('break');
-        setTimeLeft(breakDuration);
+        const breakElapsed = Math.max(0, overflowSeconds);
+        if (breakElapsed >= breakDuration && !autoRepeat) {
+          setTimerState('idle');
+          setTimeLeft(workDuration);
+          setElapsedTime(0);
+          setElapsedBeforeStartSeconds(0);
+          setActiveStartedAtMs(null);
+          setPausedTimerState(null);
+          setStartTime(null);
+        } else if (breakElapsed >= breakDuration && autoRepeat) {
+          const nextWorkElapsed = breakElapsed - breakDuration;
+          setTimerState('running');
+          setTimeLeft(Math.max(0, workDuration - nextWorkElapsed));
+          setStartTime(new Date(Date.now() - nextWorkElapsed * 1000));
+          setElapsedBeforeStartSeconds(nextWorkElapsed);
+          setActiveStartedAtMs(Date.now());
+          setPausedTimerState(null);
+        } else {
+          setTimerState('break');
+          setTimeLeft(Math.max(0, breakDuration - breakElapsed));
+          setElapsedBeforeStartSeconds(breakElapsed);
+          setActiveStartedAtMs(Date.now());
+          setPausedTimerState(null);
+        }
       } else {
         setTimerState('idle');
         setTimeLeft(workDuration);
+        setElapsedTime(0);
+        setElapsedBeforeStartSeconds(0);
+        setActiveStartedAtMs(null);
+        setPausedTimerState(null);
+        setStartTime(null);
       }
-    } else if (timerState === 'break') {
+    } else if (completedState === 'break') {
       if (autoRepeat) {
+        const nextWorkElapsed = Math.max(0, overflowSeconds);
         setTimerState('running');
-        setTimeLeft(workDuration);
-        setStartTime(new Date());
+        setTimeLeft(Math.max(0, workDuration - nextWorkElapsed));
+        setStartTime(new Date(Date.now() - nextWorkElapsed * 1000));
+        setElapsedBeforeStartSeconds(nextWorkElapsed);
+        setActiveStartedAtMs(Date.now());
+        setPausedTimerState(null);
       } else {
         setTimerState('idle');
         setTimeLeft(workDuration);
+        setElapsedTime(0);
+        setElapsedBeforeStartSeconds(0);
+        setActiveStartedAtMs(null);
+        setPausedTimerState(null);
+        setStartTime(null);
       }
     }
+    completingTimerRef.current = false;
   };
 
   const saveSession = async (durationOverrideSeconds?: number) => {
     if (!user) return;
     
-    const isStopwatch = mode === 'free' || (mode === 'goal' && goalTimerStyle === 'free');
+    const isStopwatch = isStopwatchMode();
+    const snapshot = getCurrentTimerSnapshot();
     const durationSeconds = durationOverrideSeconds ?? (
-      isStopwatch ? elapsedTime : Math.max(0, workDuration - timeLeft)
+      isStopwatch ? snapshot.elapsedSeconds : Math.max(0, workDuration - snapshot.timeLeftSeconds)
     );
     const durationMinutes = roundFocusSecondsToMinutes(durationSeconds);
     if (durationSeconds <= 0) return;
@@ -351,23 +459,39 @@ export const Focus = () => {
   };
 
   const toggleTimer = () => {
+    const now = Date.now();
+
     if (timerState === 'idle') {
       setTimerState('running');
-      setStartTime(new Date());
-      if (mode === 'free' || (mode === 'goal' && goalTimerStyle === 'free')) setElapsedTime(0);
+      setPausedTimerState(null);
+      setElapsedBeforeStartSeconds(0);
+      setActiveStartedAtMs(now);
+      setStartTime(new Date(now));
+      if (isStopwatchMode()) setElapsedTime(0);
     } else if (timerState === 'running' || timerState === 'break') {
+      const snapshot = getCurrentTimerSnapshot(now);
+      setElapsedBeforeStartSeconds(snapshot.segmentElapsed);
+      setActiveStartedAtMs(null);
+      setPausedTimerState(timerState);
+      if (isStopwatchMode()) {
+        setElapsedTime(snapshot.elapsedSeconds);
+      } else {
+        setTimeLeft(snapshot.timeLeftSeconds);
+      }
       setTimerState('paused');
     } else if (timerState === 'paused') {
-      // We don't know if it was break or running, assume running for simplicity or store previous state
-      // For now, assume running
-      setTimerState('running');
+      setActiveStartedAtMs(now);
+      setTimerState(pausedTimerState || 'running');
+      setPausedTimerState(null);
     }
   };
 
   const handleStopTimerClick = () => {
-    const isStopwatch = mode === 'free' || (mode === 'goal' && goalTimerStyle === 'free');
-    const workedSeconds = isStopwatch ? elapsedTime : Math.max(0, workDuration - timeLeft);
-    executeStopTimer((timerState === 'running' || timerState === 'paused') && workedSeconds > 0);
+    const isStopwatch = isStopwatchMode();
+    const snapshot = getCurrentTimerSnapshot();
+    const activeState = getActiveTimerState();
+    const workedSeconds = isStopwatch ? snapshot.elapsedSeconds : Math.max(0, workDuration - snapshot.timeLeftSeconds);
+    executeStopTimer(activeState !== 'break' && (timerState === 'running' || timerState === 'paused') && workedSeconds > 0);
   };
 
   const executeStopTimer = async (save: boolean) => {
@@ -377,6 +501,9 @@ export const Focus = () => {
     setTimerState('idle');
     setTimeLeft(workDuration);
     setElapsedTime(0);
+    setElapsedBeforeStartSeconds(0);
+    setActiveStartedAtMs(null);
+    setPausedTimerState(null);
     setStartTime(null);
     setConfirmAction(null);
     clearStoredTimer();
@@ -406,6 +533,10 @@ export const Focus = () => {
     setTimerState('idle');
     setTimeLeft(workDuration);
     setElapsedTime(0);
+    setElapsedBeforeStartSeconds(0);
+    setActiveStartedAtMs(null);
+    setPausedTimerState(null);
+    setStartTime(null);
     setConfirmAction(null);
     clearStoredTimer();
   };
@@ -478,8 +609,13 @@ export const Focus = () => {
   };
 
   const isGoalFreeTimer = mode === 'goal' && goalTimerStyle === 'free';
-  const displayTime = mode === 'free' || isGoalFreeTimer ? formatTime(elapsedTime) : formatTime(timeLeft);
-  const progress = mode === 'free' || isGoalFreeTimer ? 0 : ((workDuration - timeLeft) / workDuration) * 100;
+  const isStopwatch = mode === 'free' || isGoalFreeTimer;
+  const currentTimerSnapshot = getCurrentTimerSnapshot();
+  const progressDuration = getActiveTimerState() === 'break' ? breakDuration : workDuration;
+  const displayTime = isStopwatch
+    ? formatTime(currentTimerSnapshot.elapsedSeconds)
+    : formatTime(currentTimerSnapshot.timeLeftSeconds);
+  const progress = isStopwatch ? 0 : ((progressDuration - currentTimerSnapshot.timeLeftSeconds) / progressDuration) * 100;
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white p-6 md:p-10 flex flex-col relative overflow-hidden pb-24 md:pb-10">
@@ -487,14 +623,23 @@ export const Focus = () => {
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div 
           animate={{ 
-            scale: [1, 1.2, 1],
-            opacity: timerState === 'running' ? [0.3, 0.5, 0.3] : 0.1
+            scale: timerState === 'running' || timerState === 'break' ? [1, 1.04, 1] : 1,
+            opacity: timerState === 'running' || timerState === 'break' ? [0.14, 0.2, 0.14] : 0.08
           }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
           className={cn(
-            "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] rounded-full blur-[120px]",
-            timerState === 'break' ? "bg-green-500/20" : "bg-blue-500/20"
+            "absolute top-1/2 left-1/2 h-[120%] w-[120%] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px]",
+            timerState === 'break' ? "bg-emerald-400/20" : "bg-sky-400/20"
           )}
+        />
+        <motion.div
+          animate={{
+            x: timerState === 'running' || timerState === 'break' ? ["-4%", "4%", "-4%"] : 0,
+            y: timerState === 'running' || timerState === 'break' ? ["2%", "-3%", "2%"] : 0,
+            opacity: timerState === 'running' || timerState === 'break' ? 0.12 : 0.06
+          }}
+          transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute left-1/2 top-1/2 h-[70%] w-[90%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-300/10 blur-[170px]"
         />
       </div>
 
@@ -580,6 +725,9 @@ export const Focus = () => {
                       onClick={() => {
                         setGoalTimerStyle(style);
                         setElapsedTime(0);
+                        setElapsedBeforeStartSeconds(0);
+                        setActiveStartedAtMs(null);
+                        setPausedTimerState(null);
                         setTimeLeft(workDuration);
                       }}
                       className={cn(
@@ -623,14 +771,11 @@ export const Focus = () => {
             )}
             
             <div className="text-center">
-              <motion.div 
-                key={displayTime}
-                initial={{ opacity: 0.5, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="text-7xl md:text-9xl font-display font-light tracking-tighter tabular-nums"
+              <div
+                className="text-7xl md:text-9xl font-display font-light tracking-tighter tabular-nums drop-shadow-[0_0_28px_rgba(255,255,255,0.08)] transition-colors duration-700"
               >
                 {displayTime}
-              </motion.div>
+              </div>
               <p className="text-white/50 font-medium mt-2 md:mt-4 uppercase tracking-widest text-sm md:text-base">
                 {timerState === 'break' ? 'Break Time' : mode === 'free' || isGoalFreeTimer ? 'Stopwatch' : 'Focus Session'}
               </p>
